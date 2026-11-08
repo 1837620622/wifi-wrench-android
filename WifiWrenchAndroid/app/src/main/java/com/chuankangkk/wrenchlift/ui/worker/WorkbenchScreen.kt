@@ -247,7 +247,7 @@ private fun WorkbenchTopBar(state: MeasurementState, actions: WorkerActions, onB
             var editingPlace by remember { mutableStateOf(false) }
             val place = "${state.session.slabNo.ifBlank { "--" }}/${state.session.pointNo.ifBlank { "--" }}"
             StatusCell(
-                if (locked) "板号/测点 已锁定" else "板号/测点 点击修改", place, Modifier.weight(1.3f).testTag("place_cell"),
+                "板号/测点", place, Modifier.weight(1.3f).testTag("place_cell"),
                 valueColor = if (locked) p.textPrimary else p.accent, onClick = if (locked) null else { { editingPlace = true } },
                 tight = tight, small = tight, dense = short,
             )
