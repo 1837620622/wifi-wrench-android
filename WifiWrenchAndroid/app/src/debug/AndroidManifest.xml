@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 只进调试版：模拟器界面测试的宿主页。固定横屏启动，测试中途不会因旋转被重建。 -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <activity
+            android:name=".LandscapeTestHostActivity"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape" />
+    </application>
+</manifest>
