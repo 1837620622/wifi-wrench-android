@@ -35,6 +35,8 @@ data class WorkerActions(
     val exportDiagnostics: () -> Unit = {},
     val markProblem: () -> Unit = {},
     val clearDiagnostics: () -> Unit = {},
+    val setSlabNo: (String) -> Unit = {},
+    val setPointNo: (String) -> Unit = {},
 ) {
     companion object {
         fun from(vm: MeasurementViewModel) = WorkerActions(
@@ -47,6 +49,8 @@ data class WorkerActions(
             reverse = vm::startReverse,
             stop = vm::stopWrench,
             writeParameters = vm::writeParameters,
+            setSlabNo = vm::updateSlabNo,
+            setPointNo = vm::updatePointNo,
             export = vm::exportCurrent,
             exportSession = vm::exportSession,
             clearExport = vm::clearLastExport,

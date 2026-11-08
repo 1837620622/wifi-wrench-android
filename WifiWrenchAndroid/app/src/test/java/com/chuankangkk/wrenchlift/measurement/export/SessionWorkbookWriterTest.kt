@@ -147,8 +147,9 @@ class SessionWorkbookWriterTest {
             val countRow = (0..summary.lastRowNum).first { summary.getRow(it)?.getCell(0)?.stringCellValue == "记录点数（含结果帧）" }
             assertEquals(3_000.0, summary.getRow(countRow).getCell(1).numericCellValue, 0.0)
             assertTrue(labels.contains("未标定：不含顶升力等正式力值。"))
-            // 单台扳手：不出现板号/测点，也不在导出里署名。
-            assertTrue(labels.none { it.contains("板号") || it.contains("测点") || it.contains("传康") || it.contains("免费") })
+            // 板号/测点随记录导出；导出里不署名。
+            assertTrue(labels.contains("板号") && labels.contains("测点"))
+            assertTrue(labels.none { it.contains("传康") || it.contains("免费") })
             // 统计值只取实测：两段 0..1499 每段扭矩 0..399 循环，峰值 399 出现在第 400 个点（转角 19.95°）。
             fun value(label: String) = summary.getRow((0..summary.lastRowNum).first { summary.getRow(it)?.getCell(0)?.stringCellValue == label }).getCell(1)
             assertEquals(399.0, value("峰值扭矩 N·m").numericCellValue, 0.0)

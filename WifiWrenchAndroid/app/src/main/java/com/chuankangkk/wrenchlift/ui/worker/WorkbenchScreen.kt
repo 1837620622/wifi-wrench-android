@@ -74,7 +74,7 @@ import kotlinx.coroutines.delay
 
 /**
  * 正式工人工作台（设计规范 §4 单屏分区）：A 顶栏 · B 左读数 · C 中主图 · D 右控制柱。
- * 只有一台扳手：连上 Wi‑Fi 直接用，不填板号/测点。
+ * 只有一台扳手：连上 Wi‑Fi 直接用；板号/测点在顶栏采集前填写，采集中锁定。
  * 主台无纵向滚动；参数走右侧侧滑；返回 = 结束会话并回到记录页（不等于停止扳手）。
  */
 @Composable
@@ -219,7 +219,7 @@ fun rememberNowMillis(): Long {
 
 // ---------------- A 顶栏 ----------------
 
-/** 顶栏：分格显示 SN · 电量 · 通信 · 远程 · 已记录，最右「返回」。只有一台扳手，不显示板号/测点。 */
+/** 顶栏：分格显示 板号/测点 · SN · 电量 · 通信 · 远程 · 已记录，最右「返回」。板号/测点采集前可点改，采集中锁定。 */
 @Composable
 private fun WorkbenchTopBar(state: MeasurementState, actions: WorkerActions, onBack: () -> Unit, short: Boolean = false) {
     val p = palette
@@ -243,6 +243,18 @@ private fun WorkbenchTopBar(state: MeasurementState, actions: WorkerActions, onB
         // 窄屏或大字体：值用最短说法、SN 缩字号，保证各格都看得见不被截断。
         val tight = maxWidth / LocalDensity.current.fontScale < 700.dp
         Row(Modifier.fillMaxWidth().heightIn(min = barHeight).padding(start = 6.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            val locked = state.currentSessionId != null
+            var editingPlace by remember { mutableStateOf(false) }
+            val place = "${state.session.slabNo.ifBlank { "--" }}/${state.session.pointNo.ifBlank { "--" }}"
+            StatusCell(
+                if (locked) "板号/测点 已锁定" else "板号/测点 点击修改", place, Modifier.weight(1.3f).testTag("place_cell"),
+                valueColor = if (locked) p.textPrimary else p.accent, onClick = if (locked) null else { { editingPlace = true } },
+                tight = tight, small = tight, dense = short,
+            )
+            if (editingPlace) PlaceDialog(state.session.slabNo, state.session.pointNo, onDismiss = { editingPlace = false }) { slab, point ->
+                actions.setSlabNo(slab); actions.setPointNo(point); editingPlace = false
+            }
+            CellDivider()
             StatusCell("SN", state.deviceSn.takeIf { it.isNotBlank() && it != "未知设备" } ?: "--", Modifier.weight(1.15f), tight = tight, small = tight, dense = short)
             CellDivider()
             StatusCell(
@@ -702,4 +714,26 @@ private fun ControlPanel(
             }
         }
     }
+}
+
+
+/** 采集前填写板号与测点；开始记录后锁定，保证每个点归属不变。 */
+@Composable
+private fun PlaceDialog(slab: String, point: String, onDismiss: () -> Unit, onConfirm: (String, String) -> Unit) {
+    var slabText by remember { mutableStateOf(slab) }
+    var pointText by remember { mutableStateOf(point) }
+    WrenchDialog(
+        title = "板号与测点",
+        message = "开始采集前填好；开始记录后锁定，不能再改。",
+        onDismiss = onDismiss,
+        confirmText = "确定",
+        onConfirm = { onConfirm(slabText.trim(), pointText.trim()) },
+        modifier = Modifier.testTag("place_dialog"),
+        body = {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                WrenchTextField(slabText, { slabText = it.take(32) }, "板号", Modifier.weight(1f).testTag("slab_field"))
+                WrenchTextField(pointText, { pointText = it.take(32) }, "测点", Modifier.weight(1f).testTag("point_field"))
+            }
+        },
+    )
 }

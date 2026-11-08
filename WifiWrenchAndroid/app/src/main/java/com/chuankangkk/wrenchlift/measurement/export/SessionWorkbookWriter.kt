@@ -75,6 +75,9 @@ data class WorkbookSummary(
     val exportedAtMillis: Long = System.currentTimeMillis(),
     /** 最后一个结果帧（0x15 / 0x55）的原始 HEX；旧记录可能没有。 */
     val resultRawHex: String? = null,
+    /** 采集前填写、采集中锁定的板号与测点。 */
+    val slabNo: String = "",
+    val pointNo: String = "",
 )
 
 /** 一条通信记录（收 / 发的非 0x12 帧与关键操作），来自数据库。 */
@@ -1192,6 +1195,8 @@ object SessionWorkbookWriter {
 
             section("记录")
             line("记录编号", text("R${summary.recordId}"))
+            line("板号", text(summary.slabNo.ifBlank { "--" }))
+            line("测点", text(summary.pointNo.ifBlank { "--" }))
             line("扳手 SN", text(summary.deviceSn.takeIf { it.isNotBlank() && it != "未知设备" } ?: "--"))
             line("开始时间", dateTime(summary.startTimeMillis))
             line("结束时间", summary.endTimeMillis?.let { dateTime(it) } ?: text("未结束"))

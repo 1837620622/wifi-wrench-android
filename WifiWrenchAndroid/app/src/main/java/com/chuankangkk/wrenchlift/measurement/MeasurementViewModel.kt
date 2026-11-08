@@ -188,13 +188,18 @@ class MeasurementViewModel @JvmOverloads constructor(
         connectionPreferences.edit().putString("target_wifi_name", name).apply()
     }
 
+    /** 采集中（本次记录已建）锁定板号/测点，保证每个点归属不变。 */
+    val pointLocked: Boolean get() = sessionId != null
+
     fun updateSlabNo(value: String) {
+        if (sessionId != null) return
         val slab = value.take(32)
         _state.update { it.copy(session = it.session.copy(slabNo = slab)) }
         connectionPreferences.edit().putString(PREF_SLAB, slab).apply()
     }
 
     fun updatePointNo(value: String) {
+        if (sessionId != null) return
         val point = value.take(32)
         _state.update { it.copy(session = it.session.copy(pointNo = point)) }
         connectionPreferences.edit().putString(PREF_POINT, point).apply()
@@ -886,6 +891,7 @@ class MeasurementViewModel @JvmOverloads constructor(
         require(throughId > 0 || record.actualTorqueNm != null) { "记录尚无测量数据" }
         val summary = WorkbookSummary(
             recordId = record.id, deviceSn = record.deviceSn,
+            slabNo = record.slabNo, pointNo = record.pointNo,
             startTimeMillis = record.startTime, endTimeMillis = record.endTime, resultStatus = record.resultStatus,
             targetTorqueNm = record.targetTorqueNm, actualTorqueNm = record.actualTorqueNm,
             targetAngleDeg = record.targetAngleDeg, actualAngleDeg = record.actualAngleDeg,
@@ -894,7 +900,7 @@ class MeasurementViewModel @JvmOverloads constructor(
             appVersion = BuildConfig.VERSION_NAME,
             resultRawHex = record.wrenchResultRawHex,
         )
-        val fileName = MeasurementCsvExporter.recordFileName(record.id, record.startTime, "xlsx")
+        val fileName = MeasurementCsvExporter.recordFileName(record.id, record.startTime, "xlsx", record.slabNo, record.pointNo)
         val target = openExportTarget(fileName, ExportOutcome.XLSX_MIME)
         try {
             target.output.use { output ->
@@ -1042,7 +1048,7 @@ class MeasurementViewModel @JvmOverloads constructor(
                         lastPacketFunction = if (throughId > 0) WrenchPacket.FUNC_TORQUE_ANGLE else WrenchPacket.FUNC_RESULT,
                         lastRawHex = record.wrenchResultRawHex.orEmpty(),
                     )
-                    val fileName = MeasurementCsvExporter.recordFileName(record.id, record.startTime, "csv")
+                    val fileName = MeasurementCsvExporter.recordFileName(record.id, record.startTime, "csv", record.slabNo, record.pointNo)
                     var rowCount = 0
                     val write: suspend (Writer) -> Unit = { writer ->
                         MeasurementCsvExporter.writeHeader(writer)
