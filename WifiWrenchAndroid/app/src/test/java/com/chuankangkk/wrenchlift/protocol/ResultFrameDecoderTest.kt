@@ -32,6 +32,7 @@ class ResultFrameDecoderTest {
 
         assertEquals(ResultKind.UNKNOWN, result.status.kind)
         assertEquals(0xFF, result.status.code)
+        assertEquals("未定义状态 0xFF", result.status.label)
         assertEquals("0000000000", result.employeeId)
         assertEquals(1, result.boltNo)
         assertEquals(2, result.mode)
@@ -75,6 +76,7 @@ class ResultFrameDecoderTest {
         val result = ResultFrameDecoder.decode(packet)
 
         assertEquals(0xFF, result.status.code)
+        assertEquals("未定义状态 0xFF", result.status.label)
         assertEquals("0100000001", result.employeeId)
         assertEquals(1, result.boltNo)
         assertEquals(2024, result.year)

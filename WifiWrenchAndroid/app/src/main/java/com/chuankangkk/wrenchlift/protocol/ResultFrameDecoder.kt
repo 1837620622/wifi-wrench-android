@@ -105,7 +105,8 @@ object ResultFrameDecoder {
         0x14 -> ResultStatus(code, ResultKind.NG, "角度偏小")
         0x15 -> ResultStatus(code, ResultKind.NG, "角度偏大")
         0x16 -> ResultStatus(code, ResultKind.NG, "重复拧紧")
-        else -> ResultStatus(code, ResultKind.UNKNOWN, "未知状态")
+        // 协议示例帧的状态字节是 0xFF（不在状态表里）：照原值写出，不猜成合格或不合格。
+        else -> ResultStatus(code, ResultKind.UNKNOWN, "未定义状态 0x%02X".format(code and 0xFF))
     }
 
     private fun safeByte(data: ByteArray, offset: Int): Int? =

@@ -105,7 +105,10 @@ class TcpWrenchClient(
                     val count = currentSocket.getInputStream().read(readBuffer)
                     if (count < 0) break
                     val packets = parser.append(readBuffer.copyOfRange(0, count))
-                    packets.forEach { _incomingPackets.emit(it) }
+                    packets.forEach {
+                        peerAddress = it.address
+                        _incomingPackets.emit(it)
+                    }
                 }
                 if (socket != null) {
                     _connectionState.value = ConnectionState.Error("TCP 连接已关闭")
@@ -123,12 +126,15 @@ class TcpWrenchClient(
         }
     }
 
+    /** 最近一帧扳手数据里的地址码；定时心跳用它发，没收到过时用协议示例的 0x01。 */
+    @Volatile private var peerAddress: Int = WrenchPacket.DEFAULT_ADDRESS
+
     private fun startHeartbeatLoop() {
         heartbeatJob = scope.launch {
             while (true) {
                 delay(heartbeatIntervalMillis)
                 val failure = runCatching {
-                    send(WrenchPacketBuilder.heartbeat())
+                    send(WrenchPacketBuilder.heartbeat(address = peerAddress))
                 }.exceptionOrNull()
                 if (failure != null) {
                     if (socket != null) {

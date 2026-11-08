@@ -37,6 +37,9 @@ class ScriptedWrenchServer(private val replies: Boolean = true) : AutoCloseable 
         }
     }
 
+    /** 模拟扳手自己的地址码（协议字节 3）；默认与协议示例一致为 0x01。 */
+    @Volatile var address: Int = WrenchPacket.DEFAULT_ADDRESS
+
     private fun serve(socket: Socket) {
         val parser = WrenchPacketParser()
         val buffer = ByteArray(1024)
@@ -48,7 +51,7 @@ class ScriptedWrenchServer(private val replies: Boolean = true) : AutoCloseable 
                 parser.append(buffer.copyOfRange(0, count)).forEach { packet ->
                     received += packet
                     if (replies && packet.functionCode == WrenchPacket.FUNC_QUERY_SN) {
-                        send(WrenchPacketBuilder.build(WrenchPacket.FUNC_REPLY_SN, snPayload))
+                        send(WrenchPacketBuilder.build(WrenchPacket.FUNC_REPLY_SN, snPayload, address = address))
                     }
                 }
             }

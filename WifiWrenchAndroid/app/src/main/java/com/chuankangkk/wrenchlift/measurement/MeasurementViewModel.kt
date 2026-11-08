@@ -116,6 +116,11 @@ class MeasurementViewModel @JvmOverloads constructor(
     private var connectionMode: String = "未连接"
     private var lastControl: String = ""
     private var lastControlAtMillis: Long = 0L
+    /**
+     * 扳手的地址码（协议字节 3「每台装置的地址」，0x50 一节写明用于区分同组扳手）：收到扳手任一帧后
+     * 改用它自己的地址发指令；还没收到时用协议示例的 0x01。
+     */
+    @Volatile private var wrenchAddress: Int = WrenchPacket.DEFAULT_ADDRESS
     private val sessionMutex = Mutex()
     private val measurementMutex = Mutex()
     private val historyLimit = MutableStateFlow(20)
@@ -229,6 +234,7 @@ class MeasurementViewModel @JvmOverloads constructor(
                         errorPrecision = draft.precision.toIntOrNull() ?: 0,
                         boltCount = draft.boltCount.toIntOrNull() ?: 0,
                     ),
+                    address = wrenchAddress,
                 )
                 WrenchModel.PULSE_RCH -> WrenchPacketBuilder.pulseParameterSetRch(
                     com.chuankangkk.wrenchlift.protocol.RchPulseSettings(
@@ -247,6 +253,7 @@ class MeasurementViewModel @JvmOverloads constructor(
                         errorPrecision = draft.precision.toIntOrNull() ?: 0,
                         boltCount = draft.boltCount.toIntOrNull() ?: 0,
                     ),
+                    address = wrenchAddress,
                 )
                 WrenchModel.TORQUE -> throw IllegalArgumentException("当前扳手类型为定扭矩，请用 0x10 参数")
             }
@@ -441,7 +448,7 @@ class MeasurementViewModel @JvmOverloads constructor(
                     summary = if (handshake) "握手成功 $endpoint" else "TCP 已连 $endpoint，等待扳手首帧",
                 ),
                 lastCommandLabel = "连接检查和设备编号查询",
-                lastSentHex = WrenchPacketBuilder.querySn().rawHex(),
+                lastSentHex = WrenchPacketBuilder.querySn(address = wrenchAddress).rawHex(),
             )
         }
         if (handshake) rememberLastGood(endpoint)
@@ -453,8 +460,8 @@ class MeasurementViewModel @JvmOverloads constructor(
         if (!handshake) {
             // TCP 能连但还没回话：补发一次心跳和查 SN，首帧到达时 handlePacket 会确认握手。
             runCatching {
-                val heartbeat = WrenchPacketBuilder.heartbeat()
-                val querySn = WrenchPacketBuilder.querySn()
+                val heartbeat = WrenchPacketBuilder.heartbeat(address = wrenchAddress)
+                val querySn = WrenchPacketBuilder.querySn(address = wrenchAddress)
                 newConnection.send(heartbeat)
                 logFrame("发", heartbeat, "连接保活（TCP 已通、等待首帧）")
                 newConnection.send(querySn)
@@ -522,10 +529,10 @@ class MeasurementViewModel @JvmOverloads constructor(
         endJob = viewModelScope.launch {
             var stopSent = false
             if (stopWrenchFirst && _state.value.connectionState.isOnline) {
-                stopSent = runCatching { connection.send(WrenchPacketBuilder.stop()) }.isSuccess
-                logFrame("发", WrenchPacketBuilder.stop(), if (stopSent) "结束前停止扳手" else "结束前停止扳手 · 发送失败")
+                stopSent = runCatching { connection.send(WrenchPacketBuilder.stop(address = wrenchAddress)) }.isSuccess
+                logFrame("发", WrenchPacketBuilder.stop(address = wrenchAddress), if (stopSent) "结束前停止扳手" else "结束前停止扳手 · 发送失败")
                 if (stopSent) {
-                    _state.update { it.copy(motion = MotionCommand.STOPPED, lastCommandLabel = "停止扳手", lastSentHex = WrenchPacketBuilder.stop().rawHex()) }
+                    _state.update { it.copy(motion = MotionCommand.STOPPED, lastCommandLabel = "停止扳手", lastSentHex = WrenchPacketBuilder.stop(address = wrenchAddress).rawHex()) }
                     appendLog("结束前已发送停止扳手")
                     delay(150)
                 }
@@ -586,7 +593,7 @@ class MeasurementViewModel @JvmOverloads constructor(
             controlFeedback("未连上扳手，无法开启远程")
             return
         }
-        sendCommand(WrenchPacketBuilder.enableRemoteControl(), LABEL_REMOTE_ON) {
+        sendCommand(WrenchPacketBuilder.enableRemoteControl(address = wrenchAddress), LABEL_REMOTE_ON) {
             it.copy(remoteEnabled = true, motion = MotionCommand.NONE, controlMessage = "远程已启用")
         }
     }
@@ -600,14 +607,14 @@ class MeasurementViewModel @JvmOverloads constructor(
         }
         viewModelScope.launch {
             if (current.motion == MotionCommand.FORWARD || current.motion == MotionCommand.REVERSE) {
-                val stop = WrenchPacketBuilder.stop()
+                val stop = WrenchPacketBuilder.stop(address = wrenchAddress)
                 if (runCatching { connection.send(stop) }.isSuccess) {
                     logFrame("发", stop, "关远程前停止扳手")
                     _state.update { it.copy(motion = MotionCommand.STOPPED, lastCommandLabel = LABEL_STOP, lastSentHex = stop.rawHex()) }
                     appendLog("关远程前已发送停止")
                 }
             }
-            sendCommand(WrenchPacketBuilder.disableRemoteControl(), LABEL_REMOTE_OFF) {
+            sendCommand(WrenchPacketBuilder.disableRemoteControl(address = wrenchAddress), LABEL_REMOTE_OFF) {
                 it.copy(remoteEnabled = false, controlMessage = "远程已关闭")
             }
         }
@@ -631,7 +638,7 @@ class MeasurementViewModel @JvmOverloads constructor(
             appendLog("已拦截$label：远程未启用，不发送")
             return
         }
-        val packet = if (direction == MotionCommand.FORWARD) WrenchPacketBuilder.startForward() else WrenchPacketBuilder.startReverse()
+        val packet = if (direction == MotionCommand.FORWARD) WrenchPacketBuilder.startForward(address = wrenchAddress) else WrenchPacketBuilder.startReverse(address = wrenchAddress)
         sendCommand(packet, label) {
             it.copy(motion = direction, controlMessage = if (direction == MotionCommand.FORWARD) "已发送正转" else "已发送反转")
         }
@@ -643,7 +650,7 @@ class MeasurementViewModel @JvmOverloads constructor(
             controlFeedback("未连上扳手，停止发不出去，请直接在扳手上停止")
             return
         }
-        sendCommand(WrenchPacketBuilder.stop(), LABEL_STOP) {
+        sendCommand(WrenchPacketBuilder.stop(address = wrenchAddress), LABEL_STOP) {
             it.copy(motion = MotionCommand.STOPPED, controlMessage = "已发送停止")
         }
     }
@@ -676,7 +683,7 @@ class MeasurementViewModel @JvmOverloads constructor(
         val settings = buildParameterSettings() ?: return
         val statusText =
             "已发送 ${settings.modeLabel()}：目标扭矩 ${settings.targetTorqueNm} Nm，目标角度 %.1f°".format(settings.targetAngleDeg)
-        sendCommand(WrenchPacketBuilder.parameterSet(settings), LABEL_PARAMS) {
+        sendCommand(WrenchPacketBuilder.parameterSet(settings, address = wrenchAddress), LABEL_PARAMS) {
             it.copy(
                 parameterStatus = statusText,
                 controlMessage = "参数已发送",
@@ -688,7 +695,7 @@ class MeasurementViewModel @JvmOverloads constructor(
         viewModelScope.launch {
             runDiagnosticsInternal()
             if (_state.value.connectionState is ConnectionState.Connected) {
-                sendCommand(WrenchPacketBuilder.heartbeat(), "检查连接")
+                sendCommand(WrenchPacketBuilder.heartbeat(address = wrenchAddress), "检查连接")
             }
         }
     }
@@ -1188,13 +1195,14 @@ class MeasurementViewModel @JvmOverloads constructor(
         connection = target
         packetJob = viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
             target.incomingPackets.collect { packet ->
+                wrenchAddress = packet.address
                 try {
                     // 0x15 要在 0.5 秒内回 0x17，否则扳手会把结果另存：能解析就先确认，再排队入库。
                     val resultAck = if (packet.functionCode == WrenchPacket.FUNC_RESULT &&
                         runCatching { ResultFrameDecoder.decode(packet) }.isSuccess
                     ) {
-                        runCatching { target.send(WrenchPacketBuilder.resultAck()) }.also { ack ->
-                            logFrame("发", WrenchPacketBuilder.resultAck(), if (ack.isSuccess) "结果确认 0x17（校验通过即回）" else "结果确认 0x17 · 发送失败")
+                        runCatching { target.send(WrenchPacketBuilder.resultAck(address = wrenchAddress)) }.also { ack ->
+                            logFrame("发", WrenchPacketBuilder.resultAck(address = wrenchAddress), if (ack.isSuccess) "结果确认 0x17（校验通过即回）" else "结果确认 0x17 · 发送失败")
                         }
                     } else {
                         null
@@ -1258,7 +1266,7 @@ class MeasurementViewModel @JvmOverloads constructor(
             WrenchPacket.FUNC_RESULT -> handleResult(packet, now, resultAck)
             WrenchPacket.FUNC_TIME_REQUEST -> {
                 logFrame("收", packet, "扳手请求对时 0x21")
-                val sync = WrenchPacketBuilder.timeSync()
+                val sync = WrenchPacketBuilder.timeSync(address = wrenchAddress)
                 runCatching {
                     connection.send(sync)
                 }.onSuccess {
@@ -1426,9 +1434,9 @@ class MeasurementViewModel @JvmOverloads constructor(
                 "${result.torqueField2Name} ${result.actualTorqueNm.formatLog()} N·m",
         )
         val ackResult = preAck ?: runCatching {
-            connection.send(WrenchPacketBuilder.resultAck())
+            connection.send(WrenchPacketBuilder.resultAck(address = wrenchAddress))
         }.also { ack ->
-            logFrame("发", WrenchPacketBuilder.resultAck(), if (ack.isSuccess) "结果确认 0x17" else "结果确认 0x17 · 发送失败")
+            logFrame("发", WrenchPacketBuilder.resultAck(address = wrenchAddress), if (ack.isSuccess) "结果确认 0x17" else "结果确认 0x17 · 发送失败")
         }
         val activeSessionId = sessionId ?: ensureSession(connectionMode)
         recordResultMeasurementPoint(

@@ -255,6 +255,24 @@ class RemoteGateViewModelTest {
         }
     }
 
+    /** 协议字节 3 是「每台装置的地址」：扳手不是 0x01 时，App 要按扳手自己的地址发远程、确认等指令。 */
+    @Test fun commandsFollowTheWrenchAddressOnceItSpeaks() {
+        ScriptedWrenchServer().use { wrench ->
+            wrench.address = 0x02
+            val vm = viewModelFor(wrench)
+            vm.connectTcp()
+            awaitCondition(message = "握手成功") { vm.state.value.linkPhase == LinkPhase.READY }
+            vm.enableRemoteControl()
+            awaitCondition(message = "收到 0x11") { wrench.frames(WrenchPacket.FUNC_REMOTE_CONTROL).isNotEmpty() }
+            assertEquals(0x02, wrench.frames(WrenchPacket.FUNC_REMOTE_CONTROL).single().address)
+            wrench.send(TestPacketFactory.resultFrame(0x00, "0000000000", 1, 182, 88, address = 0x02))
+            awaitCondition(timeoutMillis = 2_000, message = "自动 0x17") { wrench.frames(WrenchPacket.FUNC_RESULT_CONFIRM).isNotEmpty() }
+            assertEquals(0x02, wrench.frames(WrenchPacket.FUNC_RESULT_CONFIRM).single().address)
+            vm.endSession()
+            awaitCondition(message = "会话结束") { vm.state.value.linkPhase == LinkPhase.IDLE }
+        }
+    }
+
     /** 0x06 不带被应答的功能码：只有紧跟在操作后的 NAK 才算「扳手没有接受」，过后到来的 NAK 不改远程状态。 */
     @Test fun nakIsOnlyAttributedToARecentCommand() {
         ScriptedWrenchServer().use { wrench ->
