@@ -11,7 +11,11 @@ import android.provider.Settings
 import androidx.core.content.FileProvider
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import java.util.Locale
 import com.chuankangkk.wrenchlift.BuildConfig
+import com.chuankangkk.wrenchlift.diagnostics.DiagnosticJournal
+import com.chuankangkk.wrenchlift.diagnostics.DiagnosticLog
+import com.chuankangkk.wrenchlift.diagnostics.DiagnosticReportWriter
 import com.chuankangkk.wrenchlift.connection.AdaptiveConnector
 import com.chuankangkk.wrenchlift.connection.ConnectionState
 import com.chuankangkk.wrenchlift.connection.EndpointPlanner
@@ -121,6 +125,9 @@ class MeasurementViewModel @JvmOverloads constructor(
      * 改用它自己的地址发指令；还没收到时用协议示例的 0x01。
      */
     @Volatile private var wrenchAddress: Int = WrenchPacket.DEFAULT_ADDRESS
+    /** 当前入站帧是否已在 [logFrame] 里记入诊断；没记的在处理完后补记，保证每一帧都有。 */
+    private var inboundJournaled = false
+    private val diagnostics: DiagnosticJournal get() = DiagnosticLog.journal
     private val sessionMutex = Mutex()
     private val measurementMutex = Mutex()
     private val historyLimit = MutableStateFlow(20)
@@ -264,6 +271,70 @@ class MeasurementViewModel @JvmOverloads constructor(
         }
         sendCommand(packet, LABEL_PARAMS) {
             it.copy(pulseStatus = "已发送 ${current.wrenchModel.functionLabel} 参数", controlMessage = "参数已发送")
+        }
+    }
+
+    /** 现场觉得不对劲时按一下：把此刻的连接与读数快照记成问题点，导出诊断报告时能按时间对上协议记录。 */
+    fun markProblem() {
+        val s = _state.value
+        val text = "现场标记：${s.linkPhase} · ${s.lastProtocolSummary} · 扭矩 ${s.currentTorqueNm.formatLog()} N·m · 转角 ${s.currentAngleDeg.formatLog()}° · " +
+            "远程${if (s.remoteEnabled) "开" else "关"} · 动作 ${s.motion} · 最近指令 ${s.lastCommandLabel}"
+        diagnostics.problem(DiagnosticJournal.Problem.USER_MARK, text, s.lastRawHex, s.lastPacketFunction)
+        _state.update { it.copy(controlMessage = "已标记问题点，导出诊断报告时一并带上") }
+    }
+
+    /** 诊断报告 ZIP：崩溃、协议逐帧记录、问题点、运行日志、当前状态；写到与 Excel 相同的导出目录。 */
+    fun exportDiagnostics() {
+        viewModelScope.launch {
+            if (_state.value.exportInProgress) return@launch
+            _state.update { it.copy(exportInProgress = true, lastExport = null) }
+            try {
+                val outcome = withContext(Dispatchers.IO) {
+                    val now = System.currentTimeMillis()
+                    val fileName = DiagnosticReportWriter.fileName(now)
+                    val target = openExportTarget(fileName, ExportOutcome.ZIP_MIME)
+                    try {
+                        target.output.use { DiagnosticReportWriter.write(it, diagnostics, DiagnosticLog.deviceContext(), diagnosticSnapshot(), now) }
+                        target.commit()
+                    } catch (error: Throwable) {
+                        target.abort()
+                        throw error
+                    }
+                    ExportOutcome(true, "诊断报告已导出", displayPath = target.displayPath, shareUri = target.shareUri?.toString(), mimeType = ExportOutcome.ZIP_MIME)
+                }
+                _state.update { it.copy(lastExport = outcome) }
+                appendLog("诊断报告已导出：${outcome.displayPath}")
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                diagnostics.problem(DiagnosticJournal.Problem.EXPORT_FAILED, "诊断报告导出失败：${error.javaClass.simpleName} ${error.message.orEmpty()}")
+                _state.update { it.copy(lastExport = ExportOutcome(false, "诊断报告导出失败", displayPath = error.message.orEmpty())) }
+            } finally {
+                _state.update { it.copy(exportInProgress = false) }
+            }
+        }
+    }
+
+    /** 清空诊断记录（流水、问题点、崩溃文件）；不动测量数据库。 */
+    fun clearDiagnostics() {
+        diagnostics.clear()
+        diagnostics.info("诊断记录已清空")
+        _state.update { it.copy(controlMessage = "诊断记录已清空") }
+    }
+
+    internal fun diagnosticSnapshot(): String {
+        val s = _state.value
+        return buildString {
+            appendLine("扳手型号：${s.wrenchModel} · 设备 SN：${s.deviceSn.ifBlank { "未知" }} · 地址码：0x%02X".format(Locale.ROOT, wrenchAddress))
+            appendLine("连接：${s.connectionState} · 阶段 ${s.linkPhase} · 端点 ${s.activeEndpoint ?: "无"} · 上次可用 ${s.lastGoodEndpoint ?: "无"}")
+            appendLine("探测：${s.probeReport.summary} · 尝试 ${s.probeReport.tried.joinToString(" / ").ifBlank { "无" }}")
+            appendLine("网络：Wi-Fi ${s.currentWifiName} · 本机 ${s.localIp} · 网关 ${s.gatewayIp} · 扳手网段 ${if (s.inWrenchSubnet) "是" else "否"} · ${s.networkDiagnosticSummary}")
+            appendLine("远程：${if (s.remoteEnabled) "已开" else "未开"} · 动作 ${s.motion} · 最近指令 ${s.lastCommandLabel} ${s.lastSentHex}")
+            appendLine("最近收到：${s.lastPacketFunction?.let { "0x%02X".format(Locale.ROOT, it) } ?: "无"} · ${s.lastProtocolSummary} · ${s.lastRawHex}")
+            appendLine("本连接收帧：${s.receivedFrameCount} · 当前记录 ${s.currentSessionId ?: "无"} · 已入库点 ${s.persistedPointCount}")
+            appendLine("读数：扭矩 ${s.currentTorqueNm.formatLog()} N·m · 转角 ${s.currentAngleDeg.formatLog()}° · 电量 ${s.batteryPercent?.let { "$it%" } ?: "未知"} · 故障码 ${s.deviceErrorCode ?: "无"}")
+            appendLine("参数：${s.parameterStatus} · 结果 ${s.resultStatus}")
+            append("提示：${s.warningMessage} · ${s.controlMessage}")
         }
     }
 
@@ -797,6 +868,7 @@ class MeasurementViewModel @JvmOverloads constructor(
                     )
                 }
                 appendLog("Excel 导出失败：${error.message}")
+                diagnostics.problem(DiagnosticJournal.Problem.EXPORT_FAILED, "记录 $id 导出 Excel 失败：${error.javaClass.simpleName} ${error.message.orEmpty()}")
             } finally {
                 _state.update { it.copy(exportInProgress = false) }
             }
@@ -1196,6 +1268,7 @@ class MeasurementViewModel @JvmOverloads constructor(
         packetJob = viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
             target.incomingPackets.collect { packet ->
                 wrenchAddress = packet.address
+                inboundJournaled = false
                 try {
                     // 0x15 要在 0.5 秒内回 0x17，否则扳手会把结果另存：能解析就先确认，再排队入库。
                     val resultAck = if (packet.functionCode == WrenchPacket.FUNC_RESULT &&
@@ -1208,9 +1281,16 @@ class MeasurementViewModel @JvmOverloads constructor(
                         null
                     }
                     measurementMutex.withLock { handlePacket(packet, resultAck) }
+                    if (!inboundJournaled) diagnostics.received(packet, _state.value.lastProtocolSummary)
                 } catch (cancellation: CancellationException) {
                     throw cancellation
                 } catch (throwable: Throwable) {
+                    if (!inboundJournaled) diagnostics.received(packet, "解析失败")
+                    diagnostics.problem(
+                        DiagnosticJournal.Problem.DECODE_FAILED,
+                        "功能码 0x%02X 解析失败：%s %s".format(Locale.ROOT, packet.functionCode, throwable.javaClass.simpleName, throwable.message.orEmpty()),
+                        packet.rawHex(), packet.functionCode,
+                    )
                     _state.update {
                         it.copy(lastProtocolSummary = "协议解析失败：${throwable.message ?: "未知错误"}")
                     }
@@ -1260,6 +1340,13 @@ class MeasurementViewModel @JvmOverloads constructor(
                     )
                 }
                 logFrame("收", packet, (if (ack.isAck) "ACK " else "NAK ") + ack.label + (if (recent) "（3 s 内操作：$lastControl）" else "（3 s 内无操作，不归属）"))
+                if (!ack.isAck) {
+                    diagnostics.problem(
+                        DiagnosticJournal.Problem.NAK,
+                        if (recent) "扳手拒绝：$lastControl（${now - lastControlAtMillis} ms 前发出）" else "扳手 NAK，3 s 内无操作可归属",
+                        packet.rawHex(), packet.functionCode,
+                    )
+                }
                 appendLog("收到设备应答：${ack.label}")
             }
             WrenchPacket.FUNC_TORQUE_ANGLE -> handleTorqueAngle(packet, now)
@@ -1352,6 +1439,7 @@ class MeasurementViewModel @JvmOverloads constructor(
             WrenchPacket.FUNC_PULSE_RESULT -> handlePulseResult(packet, now)
             else -> {
                 logFrame("收", packet, "未识别功能码，原始 HEX 已保存")
+                diagnostics.problem(DiagnosticJournal.Problem.UNKNOWN_FRAME, "协议文档里没有的功能码 0x%02X".format(Locale.ROOT, packet.functionCode), packet.rawHex(), packet.functionCode)
                 appendLog("收到未识别设备数据，原始内容已保存")
             }
         }
@@ -1359,6 +1447,10 @@ class MeasurementViewModel @JvmOverloads constructor(
 
     private suspend fun handleTorqueAngle(packet: WrenchPacket, now: Long) {
         val decoded = TorqueAngleDecoder.decode(packet, nowMillis = now)
+        logFrame(
+            "收", packet,
+            "过程点 ${decoded.points.size} 个 · 螺栓 ${decoded.boltNo}" + decoded.points.lastOrNull()?.let { " · 末点 ${it.torqueNm.formatLog()} N·m / ${it.angleDeg.formatLog()}°" }.orEmpty(),
+        )
         val activeSessionId = sessionId ?: ensureSession(connectionMode)
         val calculator = uncalibratedCalculator
         val newMeasuredPoints = mutableListOf<MeasuredPoint>()
@@ -1633,6 +1725,14 @@ class MeasurementViewModel @JvmOverloads constructor(
 
     /** 记一条通信记录（0x12 逐点已在过程数据里，不记）。 */
     private fun logFrame(direction: String, packet: WrenchPacket, summary: String) {
+        // 诊断记录：每一帧都记（含 0x12），发送失败同时记问题点。
+        if (direction == "收") {
+            diagnostics.received(packet, summary)
+            inboundJournaled = true
+        } else {
+            diagnostics.sent(packet, summary)
+            if (summary.contains("发送失败")) diagnostics.problem(DiagnosticJournal.Problem.SEND_FAILED, summary, packet.rawHex(), packet.functionCode)
+        }
         if (packet.functionCode == WrenchPacket.FUNC_TORQUE_ANGLE) return
         val id = sessionId
         val event = FrameEventEntity(
@@ -1650,6 +1750,7 @@ class MeasurementViewModel @JvmOverloads constructor(
     }
 
     private fun appendLog(message: String) {
+        diagnostics.info(message)
         _state.update {
             it.copy(logLines = (it.logLines + message).takeLast(12))
         }
@@ -1722,7 +1823,7 @@ fun MeasurementState.parameterDraft(): ParameterDraft = ParameterDraft(
     angleLower = parameterAngleLower,
 )
 
-private fun Double?.formatLog(): String = this?.let { "%.1f".format(it) } ?: "--"
+private fun Double?.formatLog(): String = this?.let { "%.1f".format(Locale.ROOT, it) } ?: "--"
 
 internal fun String.sanitizeUIntText(maxLength: Int = 5): String =
     filter { it.isDigit() }.take(maxLength)

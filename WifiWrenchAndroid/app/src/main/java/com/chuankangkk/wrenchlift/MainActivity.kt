@@ -9,6 +9,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.core.content.ContextCompat
+import com.chuankangkk.wrenchlift.diagnostics.DiagnosticLog
 import com.chuankangkk.wrenchlift.ui.WrenchLiftApp
 
 class MainActivity : ComponentActivity() {
@@ -30,6 +31,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        DiagnosticLog.install(this)
         requestMissingRuntimePermissions()
         setContent {
             WrenchLiftApp()

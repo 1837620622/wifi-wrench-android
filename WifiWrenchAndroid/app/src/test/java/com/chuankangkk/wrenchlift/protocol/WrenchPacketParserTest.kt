@@ -73,6 +73,30 @@ class WrenchPacketParserTest {
         assertEquals(1, parser.append(frame.copyOfRange(20, frame.size)).size)
     }
 
+    /** 诊断用：校验错的帧和成不了帧的字节都报出来，好帧照常解析。 */
+    @Test
+    fun discardedBytesAndBadChecksumAreReported() {
+        val good = HexUtils.hexToBytes(EXAMPLE_0X12)
+        val bad = good.copyOf().also { it[it.lastIndex] = 0x00 }
+        val noise = byteArrayOf(0x11, 0x22, 0x33)
+        val reports = mutableListOf<Pair<Int, Boolean>>()
+        val parser = WrenchPacketParser { bytes, badChecksum -> reports += bytes.size to badChecksum }
+
+        val packets = parser.append(noise + good + bad + good)
+
+        assertEquals(2, packets.size)
+        assertEquals(listOf(3 to false, good.size to true, good.size to false), reports)
+    }
+
+    @Test
+    fun cleanStreamReportsNothing() {
+        val good = HexUtils.hexToBytes(EXAMPLE_0X12)
+        var reports = 0
+        val parser = WrenchPacketParser { _, _ -> reports += 1 }
+        assertEquals(1, parser.append(good.copyOfRange(0, 9)).size + parser.append(good.copyOfRange(9, good.size)).size)
+        assertEquals(0, reports)
+    }
+
     companion object {
         const val EXAMPLE_0X12 =
             "C5 C5 01 12 FF FF 20 " +

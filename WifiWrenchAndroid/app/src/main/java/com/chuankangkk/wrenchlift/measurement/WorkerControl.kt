@@ -184,5 +184,6 @@ data class ExportOutcome(
 ) {
     companion object {
         const val XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        const val ZIP_MIME = "application/zip"
     }
 }

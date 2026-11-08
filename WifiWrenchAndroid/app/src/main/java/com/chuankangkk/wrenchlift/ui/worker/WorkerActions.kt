@@ -32,6 +32,9 @@ data class WorkerActions(
     val refreshWifi: () -> Unit = {},
     val setWrenchModel: (WrenchModel) -> Unit = {},
     val writePulseParameters: (PulseDraft) -> Unit = {},
+    val exportDiagnostics: () -> Unit = {},
+    val markProblem: () -> Unit = {},
+    val clearDiagnostics: () -> Unit = {},
 ) {
     companion object {
         fun from(vm: MeasurementViewModel) = WorkerActions(
@@ -60,6 +63,9 @@ data class WorkerActions(
             refreshWifi = vm::refreshWifiInfoAsync,
             setWrenchModel = vm::setWrenchModel,
             writePulseParameters = vm::writePulseParameters,
+            exportDiagnostics = vm::exportDiagnostics,
+            markProblem = vm::markProblem,
+            clearDiagnostics = vm::clearDiagnostics,
         )
     }
 }

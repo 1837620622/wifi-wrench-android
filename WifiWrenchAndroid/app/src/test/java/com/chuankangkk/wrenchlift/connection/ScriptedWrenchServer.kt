@@ -71,6 +71,17 @@ class ScriptedWrenchServer(private val replies: Boolean = true) : AutoCloseable 
         }
     }
 
+    /** 原样发字节（模拟干扰、校验错的帧）。 */
+    fun sendRaw(bytes: ByteArray) {
+        val socket = client ?: error("尚无客户端连接")
+        synchronized(this) {
+            socket.getOutputStream().apply {
+                write(bytes)
+                flush()
+            }
+        }
+    }
+
     fun functionCodes(): List<Int> = received.map { it.functionCode }
 
     /** 只断开当前客户端（模拟 Wi‑Fi 抖动）；服务端仍在监听，App 重连时会再次 accept。 */

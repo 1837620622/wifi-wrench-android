@@ -237,6 +237,9 @@ class WorkerScreensTest {
         capture("settings")
         compose.onNodeWithTag("open_diagnostics").performClick()
         compose.onNodeWithText("192.168.4.1:7888（先试）").assertExists()
+        // 诊断报告按钮在右侧面板顶部，一进来就看得到；正式版也有。
+        listOf("diag_export", "diag_mark").forEach { compose.onNodeWithTag(it, useUnmergedTree = true).assertIsDisplayed() }
+        compose.onNodeWithTag("diag_clear", useUnmergedTree = true).assertExists()
         capture("diagnostics")
     }
 

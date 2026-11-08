@@ -1,5 +1,7 @@
 package com.chuankangkk.wrenchlift.connection
 
+import com.chuankangkk.wrenchlift.diagnostics.DiagnosticJournal
+import com.chuankangkk.wrenchlift.diagnostics.DiagnosticLog
 import com.chuankangkk.wrenchlift.protocol.WrenchPacket
 import com.chuankangkk.wrenchlift.protocol.WrenchPacketBuilder
 import com.chuankangkk.wrenchlift.protocol.WrenchPacketParser
@@ -27,7 +29,7 @@ class TcpWrenchClient(
     private val socketFactory: () -> Socket = { Socket() },
 ) : WrenchConnection {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val parser = WrenchPacketParser()
+    private val parser = WrenchPacketParser { bytes, badChecksum -> DiagnosticLog.journal.discarded(bytes, badChecksum) }
     private val sendMutex = Mutex()
     private var socket: Socket? = null
     private var readJob: Job? = null
@@ -58,6 +60,7 @@ class TcpWrenchClient(
             }.onFailure { throwable ->
                 runCatching { newSocket.close() }
                 closeSocketQuietly()
+                DiagnosticLog.journal.problem(DiagnosticJournal.Problem.CONNECT_FAILED, "TCP 连接 $host:$port 失败：${throwable.javaClass.simpleName} ${throwable.message.orEmpty()}")
                 _connectionState.value = ConnectionState.Error(throwable.message ?: "TCP 连接失败")
             }
         }
@@ -111,12 +114,14 @@ class TcpWrenchClient(
                     }
                 }
                 if (socket != null) {
+                    DiagnosticLog.journal.problem(DiagnosticJournal.Problem.LINK_LOST, "扳手端关闭了 TCP 连接（读到流结束）")
                     _connectionState.value = ConnectionState.Error("TCP 连接已关闭")
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (throwable: Throwable) {
                 if (socket != null) {
+                    DiagnosticLog.journal.problem(DiagnosticJournal.Problem.LINK_LOST, "TCP 读取异常：${throwable.javaClass.simpleName} ${throwable.message.orEmpty()}")
                     _connectionState.value = ConnectionState.Error(throwable.message ?: "TCP 读取异常")
                 }
             } finally {
@@ -133,11 +138,12 @@ class TcpWrenchClient(
         heartbeatJob = scope.launch {
             while (true) {
                 delay(heartbeatIntervalMillis)
-                val failure = runCatching {
-                    send(WrenchPacketBuilder.heartbeat(address = peerAddress))
-                }.exceptionOrNull()
+                val heartbeat = WrenchPacketBuilder.heartbeat(address = peerAddress)
+                val failure = runCatching { send(heartbeat) }.exceptionOrNull()
+                if (failure == null) DiagnosticLog.journal.sent(heartbeat, "定时心跳 0x33")
                 if (failure != null) {
                     if (socket != null) {
+                        DiagnosticLog.journal.problem(DiagnosticJournal.Problem.SEND_FAILED, "定时心跳发送失败：${failure.javaClass.simpleName} ${failure.message.orEmpty()}", heartbeat.rawHex(), heartbeat.functionCode)
                         _connectionState.value = ConnectionState.Error(failure.message ?: "TCP 心跳失败")
                     }
                     break

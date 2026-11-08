@@ -3,6 +3,8 @@ package com.chuankangkk.wrenchlift.measurement
 import android.app.Application
 import androidx.lifecycle.ViewModelStore
 import com.chuankangkk.wrenchlift.connection.ScriptedWrenchServer
+import com.chuankangkk.wrenchlift.diagnostics.DiagnosticJournal.Problem
+import com.chuankangkk.wrenchlift.diagnostics.DiagnosticLog
 import com.chuankangkk.wrenchlift.protocol.TestPacketFactory
 import com.chuankangkk.wrenchlift.protocol.WrenchPacket
 import com.chuankangkk.wrenchlift.protocol.WrenchPacketBuilder
@@ -293,6 +295,61 @@ class RemoteGateViewModelTest {
             awaitCondition(message = "收到迟到的 NAK") { vm.state.value.receivedFrameCount > framesBefore }
             Thread.sleep(100)
             assertTrue("迟到的 NAK 不应关掉远程", vm.state.value.remoteEnabled)
+            vm.endSession()
+            awaitCondition(message = "会话结束") { vm.state.value.linkPhase == LinkPhase.IDLE }
+        }
+    }
+
+    /** 诊断记录：每一帧收发（含 0x12）、NAK、校验错、未识别帧、现场标记都进记录，并能导出 ZIP。 */
+    @Test fun diagnosticsRecordEveryFrameAndProblemPoint() {
+        ScriptedWrenchServer().use { wrench ->
+            val journal = DiagnosticLog.journal
+            val before = journal.counters.value
+            val vm = viewModelFor(wrench)
+            vm.connectTcp()
+            awaitCondition(message = "握手成功") { vm.state.value.linkPhase == LinkPhase.READY }
+            vm.enableRemoteControl()
+            awaitCondition(message = "远程已启用") { vm.state.value.remoteEnabled }
+            val process = WrenchPacketBuilder.build(WrenchPacket.FUNC_TORQUE_ANGLE, ByteArray(12 + 4))
+            wrench.send(process)
+            wrench.send(WrenchPacketBuilder.build(WrenchPacket.FUNC_ACK, byteArrayOf(0x01)))
+            wrench.sendRaw(process.toFrame().also { it[it.lastIndex] = (it.last() + 1).toByte() })
+            wrench.send(WrenchPacketBuilder.build(0x7E, byteArrayOf(0x01)))
+            awaitCondition(message = "未识别帧入记录") {
+                (journal.counters.value.problems[Problem.UNKNOWN_FRAME] ?: 0) >
+                    (before.problems[Problem.UNKNOWN_FRAME] ?: 0)
+            }
+            vm.markProblem()
+            val after = journal.counters.value
+            fun delta(kind: Problem) = (after.problems[kind] ?: 0) - (before.problems[kind] ?: 0)
+            assertEquals(1L, delta(Problem.NAK))
+            assertEquals(1L, delta(Problem.BAD_CHECKSUM))
+            assertEquals(1L, delta(Problem.USER_MARK))
+            assertEquals(1L, (after.byFunctionIn[WrenchPacket.FUNC_TORQUE_ANGLE] ?: 0) - (before.byFunctionIn[WrenchPacket.FUNC_TORQUE_ANGLE] ?: 0))
+            assertTrue((after.byFunctionOut[WrenchPacket.FUNC_REMOTE_CONTROL] ?: 0) > (before.byFunctionOut[WrenchPacket.FUNC_REMOTE_CONTROL] ?: 0))
+            assertTrue(journal.entries().any { it.functionCode == WrenchPacket.FUNC_TORQUE_ANGLE && it.message.startsWith("过程点 1 个") })
+            // 每一帧入站都进记录：VM 收到的帧数 ≤ 诊断记录里新增的入站帧数。
+            assertTrue(after.framesIn - before.framesIn >= vm.state.value.receivedFrameCount.toLong())
+
+            vm.exportDiagnostics()
+            awaitCondition(timeoutMillis = 15_000, message = "诊断报告导出") { vm.state.value.lastExport != null && !vm.state.value.exportInProgress }
+            val outcome = vm.state.value.lastExport!!
+            assertTrue(outcome.message, outcome.success)
+            assertEquals(ExportOutcome.ZIP_MIME, outcome.mimeType)
+            assertTrue(outcome.displayPath, outcome.displayPath.endsWith(".zip"))
+            val bytes = app.contentResolver.openInputStream(android.net.Uri.parse(outcome.shareUri!!))!!.use { it.readBytes() }
+            val names = mutableListOf<String>()
+            var summary = ""
+            java.util.zip.ZipInputStream(java.io.ByteArrayInputStream(bytes)).use { zip ->
+                while (true) {
+                    val entry = zip.nextEntry ?: break
+                    names += entry.name
+                    if (entry.name == "报告摘要.txt") summary = zip.readBytes().toString(Charsets.UTF_8)
+                }
+            }
+            assertTrue(names.toString(), names.containsAll(listOf("报告摘要.txt", "问题点.csv", "协议记录.csv", "运行日志.txt")))
+            assertTrue(summary, summary.contains("地址码：0x01"))
+            assertTrue(summary, summary.contains("扳手 NAK 拒绝"))
             vm.endSession()
             awaitCondition(message = "会话结束") { vm.state.value.linkPhase == LinkPhase.IDLE }
         }

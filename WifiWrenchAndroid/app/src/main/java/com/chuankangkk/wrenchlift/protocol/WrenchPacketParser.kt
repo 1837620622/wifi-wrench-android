@@ -1,6 +1,13 @@
 package com.chuankangkk.wrenchlift.protocol
 
-class WrenchPacketParser {
+/**
+ * C 协议拆帧。[onDiscard] 报告被丢掉的数据，供诊断记录：
+ * `badChecksum = true` 是帧头、长度齐全但校验和不对的那一帧（随后逐字节重新找帧头）；
+ * `false` 是最终没能组成任何合法帧、被丢弃的字节（含校验错帧里的字节）。
+ */
+class WrenchPacketParser(
+    private val onDiscard: (bytes: ByteArray, badChecksum: Boolean) -> Unit = { _, _ -> },
+) {
     private var buffer = ByteArray(0)
 
     fun append(chunk: ByteArray): List<WrenchPacket> {
@@ -9,8 +16,10 @@ class WrenchPacketParser {
 
         val packets = mutableListOf<WrenchPacket>()
         var index = 0
+        var skippedFrom = -1
         while (index <= buffer.size - WrenchPacket.MIN_FRAME_SIZE) {
             if (!isHeaderAt(index)) {
+                if (skippedFrom < 0) skippedFrom = index
                 index += 1
                 continue
             }
@@ -21,6 +30,10 @@ class WrenchPacketParser {
 
             val raw = buffer.copyOfRange(index, index + totalLength)
             if (Checksum.isValid(raw)) {
+                if (skippedFrom >= 0) {
+                    onDiscard(buffer.copyOfRange(skippedFrom, index), false)
+                    skippedFrom = -1
+                }
                 packets += WrenchPacket(
                     address = raw[2].toInt() and 0xFF,
                     functionCode = raw[3].toInt() and 0xFF,
@@ -32,14 +45,18 @@ class WrenchPacketParser {
                 )
                 index += totalLength
             } else {
+                onDiscard(raw, true)
+                if (skippedFrom < 0) skippedFrom = index
                 index += 1
             }
         }
+        if (skippedFrom >= 0) onDiscard(buffer.copyOfRange(skippedFrom, index), false)
 
         buffer = buffer.copyOfRange(index, buffer.size)
         // 先解析再限长：大块数据一次到达时不会在解析前被截掉；只有长期无法成帧的垃圾才会被丢弃，
         // 且保留一帧最大长度减 1 字节，跨块的半帧不受影响。
         if (buffer.size > MAX_BUFFER_SIZE) {
+            onDiscard(buffer.copyOfRange(0, buffer.size - (MAX_FRAME_SIZE - 1)), false)
             buffer = buffer.copyOfRange(buffer.size - (MAX_FRAME_SIZE - 1), buffer.size)
         }
         return packets

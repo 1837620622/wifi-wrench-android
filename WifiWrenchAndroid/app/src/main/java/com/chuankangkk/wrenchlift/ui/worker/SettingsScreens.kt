@@ -19,6 +19,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -28,6 +33,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.chuankangkk.wrenchlift.BuildConfig
+import com.chuankangkk.wrenchlift.diagnostics.DiagnosticLog
 import com.chuankangkk.wrenchlift.measurement.MeasurementState
 import com.chuankangkk.wrenchlift.measurement.WrenchModel
 
@@ -41,6 +47,7 @@ fun SettingsScreen(
     onOpenDebug: (() -> Unit)?,
 ) {
     val p = palette
+    val counters by DiagnosticLog.journal.counters.collectAsState()
     BoxWithConstraints(Modifier.fillMaxSize().background(p.canvas).windowInsetsPadding(WindowInsets.safeDrawing)) {
     // 矮横屏（≤ 400dp）收紧顶栏与面板内边距，保证两块面板内容一屏放下，不藏半截。
     val short = maxHeight < 400.dp
@@ -67,7 +74,7 @@ fun SettingsScreen(
             Panel(Modifier.weight(1f).fillMaxHeight(), padding = panelPadding) {
                 Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     SectionLabel("维护")
-                    NavRow("高级诊断", "查看通信端点与探测记录（维护人员）", onOpenDiagnostics, Modifier.testTag("open_diagnostics"))
+                    NavRow("诊断报告与高级诊断", "崩溃 ${counters.crashes} · 问题点 ${counters.problemTotal} · 可导出", onOpenDiagnostics, Modifier.testTag("open_diagnostics"))
                     if (onOpenDebug != null) NavRow("调试工具", "仅调试版", onOpenDebug, Modifier.testTag("open_debug"))
                     Hairline(Modifier.padding(vertical = 2.dp))
                     SectionLabel("关于")
@@ -101,8 +108,10 @@ private fun NavRow(title: String, subtitle: String, onClick: () -> Unit, modifie
 fun DiagnosticsScreen(state: MeasurementState, actions: WorkerActions, onBack: () -> Unit) {
     val p = palette
     val online = state.connectionState.isOnline
+    val counters by DiagnosticLog.journal.counters.collectAsState()
+    var confirmClear by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().background(p.canvas).windowInsetsPadding(WindowInsets.safeDrawing).padding(horizontal = WrenchDimens.screenEdge).testTag("diagnostics")) {
-        PageTopBar("高级诊断", onBack = onBack)
+        PageTopBar("诊断报告与高级诊断", onBack = onBack)
         Row(Modifier.weight(1f).fillMaxWidth().padding(bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(WrenchDimens.gap)) {
             Panel(Modifier.weight(1f).fillMaxHeight(), padding = PaddingValues(16.dp)) {
                 Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -129,6 +138,18 @@ fun DiagnosticsScreen(state: MeasurementState, actions: WorkerActions, onBack: (
             }
             Panel(Modifier.weight(1f).fillMaxHeight(), padding = PaddingValues(16.dp)) {
                 Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    SectionLabel("诊断报告（崩溃 · 逐帧协议 · 问题点）")
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ControlButton("导出报告", null, actions.exportDiagnostics, Modifier.weight(1f).testTag("diag_export"), ButtonTone.Accent, enabled = !state.exportInProgress, height = WrenchDimens.touch)
+                        ControlButton("标记问题", null, actions.markProblem, Modifier.weight(1f).testTag("diag_mark"), height = WrenchDimens.touch)
+                    }
+                    InfoLine("收 / 发", "${counters.framesIn} / ${counters.framesOut} 帧")
+                    InfoLine("问题点", if (counters.problemTotal == 0L) "无" else counters.problems.entries.joinToString("、") { "${it.key.label} ${it.value}" })
+                    if (counters.discardedBytes > 0) InfoLine("丢弃字节", "${counters.discardedBytes}")
+                    InfoLine("崩溃报告", "${counters.crashes} 份")
+                    if (counters.lastProblem.isNotBlank()) InfoLine("最近问题", counters.lastProblem)
+                    ControlButton("清空诊断记录", null, { confirmClear = true }, Modifier.fillMaxWidth().testTag("diag_clear"), height = WrenchDimens.touch)
+                    Hairline()
                     SectionLabel("手动端点（仅维护时用）")
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         WrenchTextField(state.host, actions.setHost, "设备地址", Modifier.weight(2f).testTag("diag_host"), enabled = !online)
@@ -148,6 +169,21 @@ fun DiagnosticsScreen(state: MeasurementState, actions: WorkerActions, onBack: (
             }
         }
     }
+    if (confirmClear) {
+        WrenchDialog(
+            title = "清空诊断记录？",
+            message = "会删掉协议流水、问题点和崩溃报告（测量记录不受影响）。建议先导出报告。",
+            confirmText = "清空",
+            confirmTone = ButtonTone.Danger,
+            onConfirm = {
+                confirmClear = false
+                actions.clearDiagnostics()
+            },
+            onDismiss = { confirmClear = false },
+            modifier = Modifier.testTag("diag_clear_confirm"),
+        )
+    }
+    ExportDialogs(state, actions, onRetry = actions.exportDiagnostics, progressText = "正在导出诊断报告…")
 }
 
 @Composable
