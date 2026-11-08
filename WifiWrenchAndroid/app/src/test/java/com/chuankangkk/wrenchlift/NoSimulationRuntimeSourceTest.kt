@@ -31,6 +31,25 @@ class NoSimulationRuntimeSourceTest {
         )
     }
 
+    /** 给别人用的正式界面、导出、提示里不出现「模拟 / 仿真 / 假数据 / 演示」字样（注释不算）。 */
+    @Test
+    fun userVisibleTextHasNoSimulationWording() {
+        val main = File(locateAppDir(), "src/main")
+        val literal = Regex("""\"(?:[^\"\\\n]|\\.)*\"""")
+        val words = Regex("模拟|仿真|假数据|演示数据|示例数据")
+        val violations = main.walkTopDown()
+            .filter { it.isFile && it.extension in sourceExtensions }
+            .flatMap { file ->
+                file.readLines().withIndex().flatMap { (index, line) ->
+                    val code = line.substringBefore("//")
+                    literal.findAll(code).map { it.value }.filter { words.containsMatchIn(it) }
+                        .map { "${file.name}:${index + 1} -> $it" }.toList()
+                }
+            }
+            .toList()
+        assertTrue("正式界面文字不允许出现模拟字样：\n${violations.joinToString("\n")}", violations.isEmpty())
+    }
+
     private fun locateAppDir(): File {
         val startDir = File(System.getProperty("user.dir") ?: ".")
         val candidates = generateSequence(startDir) { it.parentFile }

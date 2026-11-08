@@ -183,6 +183,8 @@ class SessionWorkbookWriterTest {
                 val row = runs.getRow(r)
                 assertEquals(321.0, row.getCell(col("点数")).numericCellValue, 0.0)
                 assertEquals(30.0, row.getCell(col("候选转角 °")).numericCellValue, 2.0)
+                // 有效加载从约 2° 起（扭矩达到峰值 5%），候选相对加载起点约 28°。
+                assertEquals(28.0, row.getCell(col("候选相对加载起点 °")).numericCellValue, 2.0)
                 assertEquals(10.0, row.getCell(col("前斜率 N·m/°")).numericCellValue, 1.0)
                 assertEquals(3.0, row.getCell(col("后斜率 N·m/°")).numericCellValue, 1.0)
                 assertEquals("转折候选（未验证）", row.getCell(col("判定")).stringCellValue)
@@ -214,6 +216,8 @@ class SessionWorkbookWriterTest {
             fun value(label: String) = summary.getRow((0..summary.lastRowNum).first { summary.getRow(it)?.getCell(0)?.stringCellValue == label }).getCell(1)
             assertEquals("2 / 2", value("有候选的运行段").stringCellValue)
             assertEquals("转折候选（未验证）", value("末段判定").stringCellValue)
+            assertTrue(value("重复性说明").stringCellValue.startsWith("只有 2 段有候选"))
+            assertEquals("--", value("候选扭矩 均值 / 最小 / 最大 N·m").stringCellValue)
             // 结果帧（999 N·m）只列在过程数据里，不算峰值、不算运行段。
             assertEquals(2.0, value("运行段数").numericCellValue, 0.0)
             assertEquals(300.0 + 3 * 50, value("峰值扭矩 N·m").numericCellValue, 0.0)

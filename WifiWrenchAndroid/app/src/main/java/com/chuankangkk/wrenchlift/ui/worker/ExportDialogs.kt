@@ -17,11 +17,17 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.chuankangkk.wrenchlift.measurement.ExportOutcome
 import com.chuankangkk.wrenchlift.measurement.MeasurementState
 
 /** §9.3：正在导出 Excel… / 导出完成（含图表）/ 导出失败，请重试或检查存储空间。 */
 @Composable
-fun ExportDialogs(state: MeasurementState, actions: WorkerActions, onRetry: () -> Unit = actions.export) {
+fun ExportDialogs(
+    state: MeasurementState,
+    actions: WorkerActions,
+    onRetry: () -> Unit = actions.export,
+    progressText: String = "正在导出 Excel…",
+) {
     val p = palette
     val context = LocalContext.current
     if (state.exportInProgress) {
@@ -34,7 +40,7 @@ fun ExportDialogs(state: MeasurementState, actions: WorkerActions, onRetry: () -
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     CircularProgressIndicator(color = p.accent, strokeWidth = 3.dp, modifier = Modifier.size(28.dp))
                     Spacer(Modifier.width(14.dp))
-                    Text("正在导出 Excel…", style = WrenchType.bodyStrong.copy(fontSize = 17.sp), color = p.textPrimary)
+                    Text(progressText, style = WrenchType.bodyStrong.copy(fontSize = 17.sp), color = p.textPrimary)
                 }
             },
             confirmButton = {},
@@ -42,10 +48,15 @@ fun ExportDialogs(state: MeasurementState, actions: WorkerActions, onRetry: () -
         return
     }
     val outcome = state.lastExport ?: return
+    val report = outcome.mimeType == ExportOutcome.ZIP_MIME
     if (outcome.success) {
         WrenchDialog(
-            title = "导出完成（含图表）",
-            message = outcome.message.removePrefix("导出完成（含图表）").removePrefix("，").ifBlank { "Excel 已保存，打开即可看到扭矩–转角等原生图表。" },
+            title = if (report) "诊断报告已导出" else "导出完成（含图表）",
+            message = if (report) {
+                "ZIP 内含崩溃报告、逐帧协议记录、问题点和运行日志，可「分享」发给厂商或开发排查。"
+            } else {
+                outcome.message.removePrefix("导出完成（含图表）").removePrefix("，").ifBlank { "Excel 已保存，打开即可看到扭矩–转角等原生图表。" }
+            },
             confirmText = "完成",
             onConfirm = actions.clearExport,
             onDismiss = actions.clearExport,
@@ -57,8 +68,8 @@ fun ExportDialogs(state: MeasurementState, actions: WorkerActions, onRetry: () -
                             val view = Intent(Intent.ACTION_VIEW)
                                 .setDataAndType(Uri.parse(uri), outcome.mimeType)
                                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-                            context.startActivity(Intent.createChooser(view, "用表格软件打开").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                        }.onFailure { Toast.makeText(context, "没有能打开 Excel 的应用，可用「分享」发到电脑", Toast.LENGTH_LONG).show() }
+                            context.startActivity(Intent.createChooser(view, if (report) "打开诊断报告" else "用表格软件打开").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                        }.onFailure { Toast.makeText(context, if (report) "没有能打开 ZIP 的应用，可用「分享」发到电脑" else "没有能打开 Excel 的应用，可用「分享」发到电脑", Toast.LENGTH_LONG).show() }
                     }, height = WrenchDimens.touch, modifier = Modifier.testTag("export_open"))
                     ControlButton("分享", WrenchIcon.Share, onClick = {
                         runCatching {

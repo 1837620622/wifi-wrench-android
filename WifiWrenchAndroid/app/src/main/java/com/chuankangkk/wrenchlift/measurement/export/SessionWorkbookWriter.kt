@@ -2,6 +2,7 @@ package com.chuankangkk.wrenchlift.measurement.export
 
 import com.chuankangkk.wrenchlift.measurement.MeasurementCsvExporter
 import com.chuankangkk.wrenchlift.measurement.TorqueAngleWindow
+import com.chuankangkk.wrenchlift.measurement.analysis.CandidateConsistency
 import com.chuankangkk.wrenchlift.measurement.analysis.LoadingAnalysis
 import com.chuankangkk.wrenchlift.measurement.analysis.WorkingCondition
 import com.chuankangkk.wrenchlift.protocol.HexUtils
@@ -175,7 +176,7 @@ object SessionWorkbookWriter {
         "运行段", "首序号", "末序号", "点数", "螺栓号", "开始时间", "时长 s", "起始转角 °", "最大转角 °", "平均转速 °/s",
         "峰值扭矩 N·m", "峰值处转角 °", "有效加载起 °", "有效加载止 °", "单直线斜率 N·m/°",
         "最佳两段位置 °", "最佳残差改善 %",
-        "候选转角 °", "候选扭矩 N·m", "前斜率 N·m/°", "后斜率 N·m/°", "残差改善 %", "判定",
+        "候选转角 °", "候选扭矩 N·m", "候选相对加载起点 °", "前斜率 N·m/°", "后斜率 N·m/°", "残差改善 %", "判定",
         "工况次序", "空程转角 °", "加载转角 °", "停转保压时长 s", "疑似打滑次数", "转角回退次数", "数据间断次数", "工况判读",
     )
     private val fitHeaders = listOf(
@@ -644,7 +645,7 @@ object SessionWorkbookWriter {
                     num(run.startAngle), num(run.maxAngle.takeIf { it.isFinite() }), derived(run.meanSpeed),
                     num(r.peakTorqueNm), num(r.angleAtPeakDeg), num(r.loadStartDeg), num(r.loadEndDeg), derived(run.lineSlope),
                     derived(run.best?.angleDeg), derived(run.best?.improvement?.times(100.0)),
-                    derived(c?.angleDeg), derived(c?.torqueNm), derived(c?.slopeBefore), derived(c?.slopeAfter), derived(c?.improvement?.times(100.0)),
+                    derived(c?.angleDeg), derived(c?.torqueNm), derived(CandidateConsistency.relativeAngle(r)), derived(c?.slopeBefore), derived(c?.slopeAfter), derived(c?.improvement?.times(100.0)),
                     text(if (c != null) "转折候选（未验证）" else (r.outcome as LoadingAnalysis.NotFound).reason),
                 ) + conditionCells(run.condition),
             )
@@ -900,6 +901,7 @@ object SessionWorkbookWriter {
         "转折候选：在每段有效加载（扭矩达到峰值 5% 起、到峰值止）上，用两段直线 T = β0 + m1·θ + (m2−m1)·max(0, θ−c) 遍历 c 拟合，残差明显小于单直线、前后斜率差别够大时给出。",
         "判定阈值为开发默认值（残差改善 ≥ 50%、斜率变化 ≥ 30%、两侧各 ≥ 15% 转角跨度），未经试验标定。候选只供平衡点（临界分离）研究参考，未经实测验证，不是平衡点结论。",
         "前斜率 / 后斜率单位 N·m/°；转角为扳手 0x12 原始整数度。",
+        "候选相对加载起点 = 候选转角 − 有效加载起点转角：各段起转位置不同，比较多次加载时看这一列，不看绝对转角。",
     )
 
     /**
@@ -1212,6 +1214,16 @@ object SessionWorkbookWriter {
             line("末段候选扭矩 N·m", num(lastCandidate?.torqueNm))
             line("末段前 / 后斜率 N·m/°", text(lastCandidate?.let { pair(it.slopeBefore, it.slopeAfter) } ?: ""))
             line("末段判定", text(lastRun?.let { run -> if (lastCandidate != null) "转折候选（未验证）" else (run.result.outcome as LoadingAnalysis.NotFound).reason } ?: "--"))
+
+            section("多段候选重复性（只描述，不是平衡点结论）")
+            val consistency = CandidateConsistency.summarize(runs.map { it.result })
+            fun stats(s: CandidateConsistency.Stats?) = s?.let { "${Xml.number(round3(it.mean))} / ${Xml.number(round3(it.min))} / ${Xml.number(round3(it.max))}" } ?: "--"
+            line("候选扭矩 均值 / 最小 / 最大 N·m", text(stats(consistency.torque)))
+            line("候选扭矩 标准差 N·m", num(consistency.torque?.sd?.let(::round3)))
+            line("候选扭矩 变异系数 %", num(consistency.torque?.cv?.let { round3(it * 100.0) }))
+            line("候选相对加载起点 均值 / 最小 / 最大 °", text(stats(consistency.relativeAngle)))
+            line("候选相对加载起点 标准差 °", num(consistency.relativeAngle?.sd?.let(::round3)))
+            line("重复性说明", text(consistency.note))
 
             section("工况（开发默认阈值，待真机标定）")
             val conditions = runs.mapNotNull { it.condition }

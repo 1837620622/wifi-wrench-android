@@ -115,8 +115,14 @@ fun ConnectGuideScreen(
             }
             Panel(Modifier.weight(0.58f).fillMaxHeight(), padding = androidx.compose.foundation.layout.PaddingValues(18.dp)) {
                 // 说明区从上往下排，矮屏或大字体时可以往下拉，不会挤压或叠到底部按钮；按钮固定在底部。
+                val infoScroll = rememberScrollState()
+                val panelColor = p.panel
                 Column(
-                    Modifier.weight(1f).verticalScroll(rememberScrollState()).testTag("guide_info"),
+                    Modifier
+                        .weight(1f)
+                        .bottomScrollHint(infoScroll, panelColor)
+                        .verticalScroll(infoScroll)
+                        .testTag("guide_info"),
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
                     // 手动断行只放在逗号后：长标题在窄栏里不会把「扳手」从中间劈开。

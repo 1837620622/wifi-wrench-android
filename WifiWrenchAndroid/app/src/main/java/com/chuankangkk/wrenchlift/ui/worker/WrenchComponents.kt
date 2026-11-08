@@ -42,6 +42,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.foundation.ScrollState
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
@@ -126,13 +131,14 @@ fun ControlButton(
         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
         elevation = null,
     ) {
-        // 窄控制柱 / 大字体：先缩字号；图标+文字放不下就去掉图标，把宽度让给文字，不出「正…」「停止扳…」。
+        // 窄控制柱 / 大字体：图标 + 原字号文字放不下时**先去掉图标**，把宽度让给文字；仍放不下再缩字号，
+        // 不出「正…」「停止扳…」，也不出现「图标还在、字缩成一半」。
         val measurer = rememberTextMeasurer()
         BoxWithConstraints(contentAlignment = Alignment.Center) {
             val density = LocalDensity.current
             val iconPx = with(density) { 28.dp.roundToPx() }
             val showIcon = icon != null && (!constraints.hasBoundedWidth ||
-                measurer.measure(text, WrenchType.buttonStyle.copy(fontSize = 11.sp), maxLines = 1, softWrap = false).size.width + iconPx <= constraints.maxWidth)
+                measurer.measure(text, WrenchType.buttonStyle, maxLines = 1, softWrap = false).size.width + iconPx <= constraints.maxWidth)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
                 if (showIcon && icon != null) {
                     LineIcon(icon, content, size = 20.dp)
@@ -539,4 +545,20 @@ fun SectionLabel(text: String, modifier: Modifier = Modifier) {
 @Composable
 fun Hairline(modifier: Modifier = Modifier) {
     Box(modifier.fillMaxWidth().heightIn(min = 1.dp, max = 1.dp).background(palette.hairline))
+}
+
+/**
+ * 可滚动区域下面还有内容时（矮屏 / 大字体），底边画一段渐隐到 [background]，提示可以往上推，
+ * 不让半行字看起来像被硬切掉。放在 `verticalScroll` 之前，渐隐固定在可视区底边。
+ */
+fun Modifier.bottomScrollHint(state: ScrollState, background: Color, fade: Dp = 28.dp): Modifier = drawWithContent {
+    drawContent()
+    if (state.canScrollForward) {
+        val height = fade.toPx().coerceAtMost(size.height / 3f)
+        drawRect(
+            Brush.verticalGradient(0f to Color.Transparent, 1f to background, startY = size.height - height, endY = size.height),
+            topLeft = Offset(0f, size.height - height),
+            size = Size(size.width, height),
+        )
+    }
 }

@@ -7,13 +7,14 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.captureToImage
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.test.platform.app.InstrumentationRegistry
+import com.chuankangkk.wrenchlift.LandscapeTestHostActivity
 import com.chuankangkk.wrenchlift.connection.ConnectionState
 import com.chuankangkk.wrenchlift.measurement.LinkPhase
 import com.chuankangkk.wrenchlift.measurement.MeasuredPoint
@@ -30,7 +31,8 @@ import org.junit.Test
 
 /** 真机/模拟器上的正式工人页：单屏六键、远程门闩、二次确认、主屏无端口。截图作为视觉证据上传。 */
 class WorkerWorkbenchTest {
-    @get:Rule val compose = createComposeRule()
+    /** 宿主固定横屏（调试版专用），避免测试中途旋转重建导致「No compose hierarchies found」。 */
+    @get:Rule val compose = createAndroidComposeRule<LandscapeTestHostActivity>()
 
     private fun live(remote: Boolean): MeasurementState {
         val points = List(300) { i ->

@@ -27,21 +27,31 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // CI 推 main 时解码仓库里的固定签名（密钥只在 CI 临时目录，不进仓库）；调试版和正式版都用它签，覆盖安装不冲突。
+    // 没有这两个环境变量（本机、PR 构建）时调试版用默认调试签名，正式版不签名。
+    val stableKeyPath = providers.environmentVariable("WIFI_WRENCH_DEBUG_KEYSTORE").orNull
+    val stableKeyPassword = providers.environmentVariable("WIFI_WRENCH_DEBUG_STORE_PASSWORD").orNull
+    val stableSigning = !stableKeyPath.isNullOrBlank() && !stableKeyPassword.isNullOrBlank()
+    if (stableSigning) {
+        signingConfigs.create("stable") {
+            storeFile = file(stableKeyPath!!)
+            storeType = "PKCS12"
+            storePassword = stableKeyPassword
+            keyAlias = "wifi-wrench-debug"
+            keyPassword = stableKeyPassword
+        }
+    }
+
     buildTypes {
         debug {
+            // 调试版：带「调试工具」入口，只给开发自己用。
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug.$wifiWrenchVersionCode"
-            val keyPath = providers.environmentVariable("WIFI_WRENCH_DEBUG_KEYSTORE").orNull
-            val keyPasswordValue = providers.environmentVariable("WIFI_WRENCH_DEBUG_STORE_PASSWORD").orNull
-            if (!keyPath.isNullOrBlank() && !keyPasswordValue.isNullOrBlank()) {
-                signingConfig = signingConfigs.getByName("debug").apply {
-                    storeFile = file(keyPath)
-                    storeType = "PKCS12"
-                    storePassword = keyPasswordValue
-                    keyAlias = "wifi-wrench-debug"
-                    keyPassword = keyPasswordValue
-                }
-            }
+            if (stableSigning) signingConfig = signingConfigs.getByName("stable")
+        }
+        release {
+            // 正式版：发给别人用。没有调试入口、没有任何调试 / 模拟字样，版本号就是 0.3.0。
+            if (stableSigning) signingConfig = signingConfigs.getByName("stable")
         }
     }
 

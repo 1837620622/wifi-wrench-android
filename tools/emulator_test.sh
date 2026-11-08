@@ -2,9 +2,8 @@
 set -euo pipefail
 mkdir -p ui-evidence
 adb shell wm size 1280x720
-# 固定横屏：测试用的 ComponentActivity 不带 sensorLandscape，API28 默认竖屏会把主台挤成近似竖条。
-adb shell settings put system accelerometer_rotation 0
-adb shell settings put system user_rotation 1
+# 横屏由测试宿主 LandscapeTestHostActivity（调试版清单 sensorLandscape）保证；
+# 不再改系统 user_rotation：那样旋转会在测试页启动后才生效，页面被重建，测试随机失败。
 adb shell wm size | tee ui-evidence/screen.txt
 adb shell wm density "$1"
 adb shell settings put system font_scale "$2"

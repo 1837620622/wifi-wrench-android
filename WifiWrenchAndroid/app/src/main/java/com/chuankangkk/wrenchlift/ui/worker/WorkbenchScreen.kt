@@ -328,12 +328,14 @@ private fun CellDivider() {
 @Composable
 private fun BackChip(onBack: () -> Unit, modifier: Modifier = Modifier, tight: Boolean = false) {
     val p = palette
+    // 触控区保持 48dp 高；可见边框上下各内缩 4dp，矮屏顶栏也正好 48dp 时不会和顶栏边框贴成一条、像被裁掉。
     Row(
         modifier
             .heightIn(min = WrenchDimens.touch)
+            .clickable(role = Role.Button, onClick = onBack)
+            .padding(vertical = 4.dp)
             .clip(WrenchDimens.buttonShape)
             .border(1.dp, p.hairline, WrenchDimens.buttonShape)
-            .clickable(role = Role.Button, onClick = onBack)
             .padding(start = if (tight) 4.dp else 8.dp, end = if (tight) 8.dp else 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
