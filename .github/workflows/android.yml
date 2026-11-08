@@ -58,6 +58,28 @@ jobs:
           grep -F "versionCode='$((1000 + GITHUB_RUN_NUMBER))'" .build/app/outputs/apk/debug/apk-metadata.txt
           grep -F "versionName='0.3.0-debug.$((1000 + GITHUB_RUN_NUMBER))'" .build/app/outputs/apk/debug/apk-metadata.txt
           sha256sum .build/app/outputs/apk/debug/app-debug.apk > .build/app/outputs/apk/debug/SHA256SUMS
+      - name: Release APK for users (no debug entries)
+        if: github.event_name != 'pull_request'
+        run: |
+          apk=.build/app/outputs/apk/release/app-release.apk
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$apk"
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$apk" > .build/release-metadata.txt
+          grep -F "package: name='com.chuankangkk.wrenchlift' " .build/release-metadata.txt
+          grep -F "versionCode='$((1000 + GITHUB_RUN_NUMBER))'" .build/release-metadata.txt
+          grep -F "versionName='0.3.0'" .build/release-metadata.txt
+          mkdir -p .build/release-dist
+          cp "$apk" ".build/release-dist/WiFi-Wrench-0.3.0-build$((1000 + GITHUB_RUN_NUMBER)).apk"
+          cp .build/release-metadata.txt .build/release-dist/apk-metadata.txt
+          (cd .build/release-dist && sha256sum ./*.apk > SHA256SUMS)
+          cat .build/release-dist/SHA256SUMS
+      - name: Release APK artifact
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: wifi-wrench-release-${{ github.run_number }}
+          path: .build/release-dist/
+          if-no-files-found: error
+          retention-days: 90
       - name: APK and emulator test APK
         uses: actions/upload-artifact@v4
         with:
