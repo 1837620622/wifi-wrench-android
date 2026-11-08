@@ -141,7 +141,7 @@ object PulseResultFrameDecoder {
         require(packet.functionCode == WrenchPacket.FUNC_PULSE_RESULT) { "不是 0x55 脉冲类结果帧" }
         val payload = packet.payload
         return PulseResultFrame(
-            status = ResultFrameDecoder.mapStatus(packet.reservedHigh),
+            status = mapStatus(packet.reservedHigh),
             employeeId = safeAscii(payload, 0, 10),
             boltNo = safeU16(payload, 10) ?: 0,
             year = safeU16(payload, 12),
@@ -156,6 +156,16 @@ object PulseResultFrameDecoder {
             actualAngleDeg = safeU16(payload, 24)?.toDouble(),
             rawHex = packet.rawHex(),
         )
+    }
+
+    /**
+     * 协议 0x55 字节 5 只定义了 0x00 成功 OK、0x10 失败 NG；0x15 的细分码（0x01 扭矩到达、0x13 打滑……）
+     * 不适用于 0x55，其余值按「未定义状态」原样写出，不借用 0x15 的含义。
+     */
+    fun mapStatus(code: Int): ResultStatus = when (code and 0xFF) {
+        0x00 -> ResultStatus(code, ResultKind.OK, "合格")
+        0x10 -> ResultStatus(code, ResultKind.NG, "不合格")
+        else -> ResultStatus(code, ResultKind.UNKNOWN, "未定义状态 0x%02X".format(code and 0xFF))
     }
 
     private fun safeByte(data: ByteArray, offset: Int): Int? =

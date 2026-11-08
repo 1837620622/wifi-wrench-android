@@ -1741,14 +1741,16 @@ private fun WifiWrenchParameterSettings.modeLabel(): String =
 private fun MeasurementState.withSyncedResultSettings(result: ResultFrame): MeasurementState {
     // M2 的 28-29 是「预设扭矩实际值」（实测），不是设定值：不能回填到参数的目标扭矩里。
     val targetTorque = result.settingTorqueNm?.roundToInt()?.toString() ?: parameterTargetTorque
-    val targetAngle = result.targetAngleDeg?.formatInput() ?: parameterTargetAngle
+    // M1 的 32-33 协议固定 00 00，不是设定值：只有 M2 才把「目标角度设置值」同步回参数，免得把用户填的 M2 目标角度冲成 0。
+    val settingAngle = result.targetAngleDeg?.takeIf { result.isM2 }
+    val targetAngle = settingAngle?.formatInput() ?: parameterTargetAngle
     val torqueUpper = result.torqueUpperNm?.roundToInt()?.toString() ?: parameterTorqueUpper
     val torqueLower = result.torqueLowerNm?.roundToInt()?.toString() ?: parameterTorqueLower
     val angleUpper = result.angleUpperDeg?.formatInput() ?: parameterAngleUpper
     val angleLower = result.angleLowerDeg?.formatInput() ?: parameterAngleLower
     val hasAnySetting =
         result.settingTorqueNm != null ||
-            result.targetAngleDeg != null ||
+            settingAngle != null ||
             result.torqueUpperNm != null ||
             result.torqueLowerNm != null ||
             result.angleUpperDeg != null ||
@@ -1769,4 +1771,5 @@ private fun MeasurementState.withSyncedResultSettings(result: ResultFrame): Meas
 }
 
 private fun Double.formatInput(): String =
-    if (abs(this - roundToInt()) < 1e-9) roundToInt().toString() else "%.1f".format(this)
+    // 输入框按 toDoubleOrNull 解析：固定用「.」作小数点，不随系统语言写成「,」。
+    if (abs(this - roundToInt()) < 1e-9) roundToInt().toString() else "%.1f".format(java.util.Locale.ROOT, this)

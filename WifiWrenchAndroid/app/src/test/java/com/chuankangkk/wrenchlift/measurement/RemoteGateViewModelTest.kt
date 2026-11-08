@@ -237,6 +237,7 @@ class RemoteGateViewModelTest {
             }
             wrench.send(WrenchPacketBuilder.build(WrenchPacket.FUNC_TORQUE_ANGLE, payload))
             awaitCondition(message = "30 点入库") { vm.state.value.persistedPointCount == 30L }
+            vm.updateParameterTargetAngle("37.5")
             val sentAt = System.nanoTime()
             wrench.send(TestPacketFactory.resultFrame(0x00, "0000000000", 1, 182, 88))
             awaitCondition(timeoutMillis = 2_000, message = "自动 0x17") { wrench.frames(WrenchPacket.FUNC_RESULT_CONFIRM).isNotEmpty() }
@@ -246,6 +247,9 @@ class RemoteGateViewModelTest {
             assertEquals("结果帧不并进实时曲线", 30, vm.state.value.recentPoints.size)
             assertEquals(182.0, vm.state.value.currentTorqueNm, 0.0)
             assertEquals("合格", vm.state.value.resultStatus)
+            // 夹具是 M1 结果帧：28-29 目标扭矩可回填；32-33 在 M1 下不是设定值，不能把用户填的目标角度冲掉。
+            assertEquals("180", vm.state.value.parameterTargetTorque)
+            assertEquals("37.5", vm.state.value.parameterTargetAngle)
             vm.endSession()
             awaitCondition(message = "会话结束") { vm.state.value.linkPhase == LinkPhase.IDLE }
         }

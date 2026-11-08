@@ -113,8 +113,9 @@ fun ParameterSheet(
                         Text("保存后写入扳手，影响后续动作", style = WrenchType.captionStyle, color = p.textSecondary)
                     }
                 }
+                val formScroll = rememberScrollState()
                 Column(
-                    Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(vertical = 8.dp),
+                    Modifier.weight(1f).bottomScrollHint(formScroll, p.panel).verticalScroll(formScroll).padding(vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     if (pulse) {
