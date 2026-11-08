@@ -4,7 +4,9 @@
 
 ## 下载
 
-最新版本：[v0.3.0-build58](https://github.com/1837620622/wifi-wrench-android/releases/tag/v0.3.0-build58)（APK + SHA256 校验）。尚未完成真机控制验证。
+[![最新版本](https://img.shields.io/github/v/release/1837620622/wifi-wrench-android)](https://github.com/1837620622/wifi-wrench-android/releases/latest)
+
+到 [最新 Release](https://github.com/1837620622/wifi-wrench-android/releases/latest) 下载 APK（附 SHA256 校验）。尚未完成真机控制验证。
 
 ## 使用
 
