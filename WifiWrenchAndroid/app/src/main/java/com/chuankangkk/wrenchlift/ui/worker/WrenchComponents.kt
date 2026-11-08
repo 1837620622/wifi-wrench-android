@@ -390,8 +390,9 @@ fun ToggleRow(
             Spacer(Modifier.width(8.dp))
         }
         Column(Modifier.weight(1f)) {
-            Text(title, style = WrenchType.buttonStyle, color = if (enabled) titleColor else p.disabledText, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (subtitle != null) Text(subtitle, style = WrenchType.captionStyle, color = p.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            // 窄控制柱上开关挤占宽度：标题缩字号不出「远…」。
+            FitText(title, WrenchType.buttonStyle, color = if (enabled) titleColor else p.disabledText, minSize = 10.sp)
+            if (subtitle != null) FitText(subtitle, WrenchType.captionStyle, color = p.textSecondary, minSize = 10.sp)
         }
         Switch(
             checked = checked,
