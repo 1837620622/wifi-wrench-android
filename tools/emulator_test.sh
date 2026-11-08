@@ -10,6 +10,19 @@ adb shell wm density "$1"
 adb shell settings put system font_scale "$2"
 adb install -r apk/debug/app-debug.apk
 adb install -r apk/androidTest/debug/app-debug-androidTest.apk
+# 等横屏、密度、字号真正生效再跑测试：配置变化若在测试 Activity 启动之后才到，Activity 会被重建，
+# Compose 测试就会报「No compose hierarchies found」（API 28 上偶发）。最多等 10 秒，不因等不到而失败。
+rotation=""
+for _ in $(seq 1 20); do
+  displays="$(adb shell dumpsys window displays || true)"
+  rotation="$(grep -Eo 'mRotation=[0-9]|mCurrentRotation=[0-9A-Z_]+' <<< "$displays" | head -n 1 || true)"
+  case "$rotation" in
+    *=1|*ROTATION_90) break ;;
+  esac
+  sleep 0.5
+done
+echo "rotation: ${rotation:-unknown}" | tee ui-evidence/rotation.txt
+sleep 2
 adb shell am instrument -w com.chuankangkk.wrenchlift.debug.test/androidx.test.runner.AndroidJUnitRunner | tee ui-evidence/instrumentation.txt
 for preview in worker-remote-off worker-remote-on worker-params worker-guide; do
   if ! adb exec-out run-as com.chuankangkk.wrenchlift.debug cat "files/$preview.png" > "ui-evidence/$preview.png"; then
