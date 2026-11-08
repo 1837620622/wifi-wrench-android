@@ -52,7 +52,7 @@ class WorkerScreensTest {
         show(WorkerSamples.live(remote = false))
         listOf("back", "top_bar", "readouts", "torque_chart", "chart_tabs", "controls", "remote_toggle", "forward", "reverse", "stop", "params", "export", "stored_count")
             .forEach { compose.onNodeWithTag(it, useUnmergedTree = true).assertExists() }
-        // 顶栏分格：SN · 电量 · 通信 · 远程 · 已记录 · 返回（只有一台扳手，不显示板号/测点）。
+        // 顶栏分格：SN · 电量 · 通信 · 远程 · 已记录 · 返回（板号/测点在最左格）。
         compose.onNodeWithText("2026110501").assertIsDisplayed()
         compose.onNodeWithText("82%").assertIsDisplayed()
         compose.onNodeWithText("已连上", substring = true).assertIsDisplayed()
@@ -67,7 +67,8 @@ class WorkerScreensTest {
             assertEquals("主屏不应出现 $word", 0, compose.onAllNodesWithText(word, substring = true).fetchSemanticsNodes().size)
         }
         // 工业终端不写说明性废话、不署名：板号/测点、显示窗口说明、待分析、作者/供应都不在主屏。
-        listOf("已确认平衡", "模拟", "板号", "测点", "FZB", "完整数据", "见导出", "显示窗口", "待分析", "免费", "传康").forEach { word ->
+        compose.onNodeWithTag("place_cell").assertIsDisplayed()
+        listOf("已确认平衡", "模拟", "完整数据", "见导出", "显示窗口", "待分析", "免费", "传康").forEach { word ->
             assertEquals("主屏不应出现 $word", 0, compose.onAllNodesWithText(word, substring = true).fetchSemanticsNodes().size)
         }
         capture("workbench-live-remote-off")

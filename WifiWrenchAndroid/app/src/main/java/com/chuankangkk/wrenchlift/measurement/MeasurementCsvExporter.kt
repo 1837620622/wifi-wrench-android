@@ -19,7 +19,7 @@ object MeasurementCsvExporter {
 
     /** 记录导出文件名：只有一台扳手，按记录号 + 开始时间命名，如 `WifiWrench_R12_20261104_234612.xlsx`。 */
     fun recordFileName(recordId: Long, startMillis: Long, extension: String, slabNo: String = "", pointNo: String = ""): String {
-        val place = listOf(slabNo, pointNo).map { it.sanitizeFilePart() }.filter { it.isNotBlank() }.joinToString("_")
+        val place = listOf(slabNo, pointNo).filter { it.isNotBlank() }.map { it.sanitizeFilePart() }.joinToString("_")
         val placePart = if (place.isBlank()) "" else "_$place"
         return "WifiWrench_R${recordId}${placePart}_${synchronized(fileTimeFormat) { fileTimeFormat.format(Date(startMillis)) }}.$extension"
     }
