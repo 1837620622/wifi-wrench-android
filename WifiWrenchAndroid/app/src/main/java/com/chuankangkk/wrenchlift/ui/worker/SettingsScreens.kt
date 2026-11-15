@@ -134,6 +134,22 @@ fun DiagnosticsScreen(state: MeasurementState, actions: WorkerActions, onBack: (
                         state.deviceReverseDirection?.let { append(if (it) " · 控制位：反向" else " · 控制位：正向") }
                     })
                     InfoLine("扳手类型", "${state.wrenchModel.label}（参数 ${state.wrenchModel.functionLabel}）")
+                    Hairline(Modifier.padding(vertical = 4.dp))
+                    SectionLabel("设备身份（防同网段冒充）")
+                    InfoLine("本次编号", state.deviceSn.ifBlank { "--" })
+                    InfoLine("记住的编号", state.deviceSnPinned.ifBlank { "还没记下" })
+                    if (state.deviceSnMismatch) {
+                        InfoLine("核对", "与记住的不一致：可能换了扳手，也可能有设备冒充")
+                        ControlButton(
+                            "确认这台扳手，记住编号",
+                            null,
+                            actions.rememberDevice,
+                            Modifier.fillMaxWidth().testTag("diag_remember_device"),
+                            ButtonTone.Danger,
+                            enabled = state.deviceSn.isNotBlank(),
+                            height = WrenchDimens.touch,
+                        )
+                    }
                 }
             }
             Panel(Modifier.weight(1f).fillMaxHeight(), padding = PaddingValues(16.dp)) {

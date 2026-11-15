@@ -38,6 +38,9 @@ data class MeasurementState(
     val employeeId: String = "--",
     val batteryPercent: Int? = null,
     val deviceSn: String = "",
+    /** 本机信任的扳手编号：第一台回话的 SN。与 [deviceSn] 不一致时说明不是同一台，或有人在冒充。 */
+    val deviceSnPinned: String = "",
+    val deviceSnMismatch: Boolean = false,
     val currentWifiName: String = "--",
     val localIp: String = "--",
     val gatewayIp: String = "--",

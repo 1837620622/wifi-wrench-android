@@ -18,6 +18,7 @@ import com.chuankangkk.wrenchlift.diagnostics.DiagnosticLog
 import com.chuankangkk.wrenchlift.diagnostics.DiagnosticReportWriter
 import com.chuankangkk.wrenchlift.connection.AdaptiveConnector
 import com.chuankangkk.wrenchlift.connection.ConnectionState
+import com.chuankangkk.wrenchlift.connection.DeviceIdentity
 import com.chuankangkk.wrenchlift.connection.EndpointPlanner
 import com.chuankangkk.wrenchlift.connection.ProbeOutcome
 import com.chuankangkk.wrenchlift.connection.WifiNetworkTracker
@@ -104,6 +105,7 @@ class MeasurementViewModel @JvmOverloads constructor(
         exportCsvToo = connectionPreferences.getBoolean(PREF_EXPORT_CSV, false),
         darkTheme = connectionPreferences.getBoolean(PREF_DARK, true),
         wrenchModel = runCatching { WrenchModel.valueOf(connectionPreferences.getString(PREF_MODEL, null) ?: "") }.getOrDefault(WrenchModel.TORQUE),
+        deviceSnPinned = DeviceIdentity.normalize(connectionPreferences.getString(DeviceIdentity.PREF_PINNED_SN, null)).orEmpty(),
     ))
     val state: StateFlow<MeasurementState> = _state.asStateFlow()
 
@@ -1373,6 +1375,26 @@ class MeasurementViewModel @JvmOverloads constructor(
             }
             WrenchPacket.FUNC_REPLY_SN -> {
                 val sn = DeviceSnDecoder.decode(packet)
+                // 设备身份：回话编号与本机记住的比对。协议没有认证，只能发现「不是同一台」，所以只记不拦。
+                val verdict = DeviceIdentity.evaluate(
+                    connectionPreferences.getString(DeviceIdentity.PREF_PINNED_SN, null),
+                    sn.sn,
+                )
+                when (verdict) {
+                    is DeviceIdentity.Verdict.FirstSeen -> {
+                        connectionPreferences.edit().putString(DeviceIdentity.PREF_PINNED_SN, verdict.sn).apply()
+                        appendLog("记下这台扳手（SN ${verdict.sn}）；以后编号不一致会提示并记进诊断报告")
+                    }
+                    is DeviceIdentity.Verdict.Differs -> {
+                        diagnostics.problem(
+                            DiagnosticJournal.Problem.DEVICE_SN_MISMATCH,
+                            "回话的扳手编号 ${verdict.reported} 与本机记住的 ${verdict.pinned} 不一致：可能换了扳手，也可能同网段有设备冒充",
+                            packet.rawHex(), packet.functionCode,
+                        )
+                        appendLog("扳手编号与记住的不一致：${verdict.pinned} → ${verdict.reported}")
+                    }
+                    else -> Unit
+                }
                 val known = _state.value.deviceSn.takeIf { it.isNotBlank() && it != "未知设备" && it != "--" }
                 if (known != null && known != sn.sn && sessionId != null) {
                     // 换了一台扳手：上一台的记录收尾，新记录只含这台扳手的数据。
@@ -1390,11 +1412,19 @@ class MeasurementViewModel @JvmOverloads constructor(
                     }
                     appendLog("检测到换了扳手（SN $known → ${sn.sn}），已开新记录")
                 }
+                val pinnedSn = when (verdict) {
+                    is DeviceIdentity.Verdict.FirstSeen -> verdict.sn
+                    is DeviceIdentity.Verdict.Matches -> verdict.sn
+                    is DeviceIdentity.Verdict.Differs -> verdict.pinned
+                    DeviceIdentity.Verdict.Unknown -> _state.value.deviceSnPinned
+                }
                 _state.update {
                     it.copy(
                         deviceSn = sn.sn,
                         session = it.session.copy(deviceSn = sn.sn),
                         lastProtocolSummary = "设备 SN ${sn.sn}",
+                        deviceSnPinned = pinnedSn,
+                        deviceSnMismatch = verdict is DeviceIdentity.Verdict.Differs,
                     )
                 }
                 logFrame("收", packet, "设备 SN ${sn.sn}")
@@ -1755,6 +1785,20 @@ class MeasurementViewModel @JvmOverloads constructor(
         }
     }
 
+    /** 高级诊断：维护人员确认「现在这台就是该用的扳手」，把当前编号记为信任值，清掉不一致提示。 */
+    fun rememberCurrentDevice() {
+        val sn = DeviceIdentity.normalize(_state.value.deviceSn)
+        if (sn == null) {
+            _state.update { it.copy(lastProtocolSummary = "还没收到扳手编号，无法记住") }
+            return
+        }
+        connectionPreferences.edit().putString(DeviceIdentity.PREF_PINNED_SN, sn).apply()
+        _state.update {
+            it.copy(deviceSnPinned = sn, deviceSnMismatch = false, lastProtocolSummary = "已记住这台扳手（SN $sn）")
+        }
+        diagnostics.info("维护人员已确认这台扳手的编号：$sn（之后的回话编号都与它比对）")
+    }
+
     private fun appendLog(message: String) {
         diagnostics.info(message)
         _state.update {
@@ -1770,6 +1814,7 @@ class MeasurementViewModel @JvmOverloads constructor(
         currentWifiName = currentWifiName, localIp = localIp, gatewayIp = gatewayIp, inWrenchSubnet = inWrenchSubnet,
         networkDiagnosticSummary = networkDiagnosticSummary,
         exportCsvToo = exportCsvToo, darkTheme = darkTheme, wrenchModel = wrenchModel,
+        deviceSnPinned = deviceSnPinned, deviceSnMismatch = deviceSnMismatch,
     )
 
     override fun onCleared() {

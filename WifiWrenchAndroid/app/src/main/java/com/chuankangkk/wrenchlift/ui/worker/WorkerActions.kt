@@ -35,6 +35,7 @@ data class WorkerActions(
     val exportDiagnostics: () -> Unit = {},
     val markProblem: () -> Unit = {},
     val clearDiagnostics: () -> Unit = {},
+    val rememberDevice: () -> Unit = {},
     val setSlabNo: (String) -> Unit = {},
     val setPointNo: (String) -> Unit = {},
 ) {
@@ -70,6 +71,7 @@ data class WorkerActions(
             exportDiagnostics = vm::exportDiagnostics,
             markProblem = vm::markProblem,
             clearDiagnostics = vm::clearDiagnostics,
+            rememberDevice = vm::rememberCurrentDevice,
         )
     }
 }

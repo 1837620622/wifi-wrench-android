@@ -2,8 +2,11 @@
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="root" path="." />
+        <!-- 导出件（xlsx/csv）在 App 专属外部目录，属真实现场数据；allowBackup=false 之外再排除一次。 -->
+        <exclude domain="external" path="." />
     </cloud-backup>
     <device-transfer>
         <exclude domain="root" path="." />
+        <exclude domain="external" path="." />
     </device-transfer>
 </data-extraction-rules>

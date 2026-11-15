@@ -42,6 +42,9 @@ class DiagnosticJournal(
         EXPORT_FAILED("导出失败"),
         USER_MARK("现场手动标记"),
         CRASH("崩溃"),
+
+        /** 回话的设备编号与本机记住的不同：可能换了扳手，也可能同网段有设备冒充。 */
+        DEVICE_SN_MISMATCH("设备编号与上次不同"),
     }
 
     data class Entry(
