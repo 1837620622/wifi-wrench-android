@@ -45,6 +45,9 @@ class DiagnosticJournal(
 
         /** 回话的设备编号与本机记住的不同：可能换了扳手，也可能同网段有设备冒充。 */
         DEVICE_SN_MISMATCH("设备编号与上次不同"),
+
+        /** 收到了测量帧，但这条连接一直没回设备编号，无法核对是不是同一台扳手。 */
+        DEVICE_SN_UNVERIFIED("测量帧未核对设备编号"),
     }
 
     data class Entry(

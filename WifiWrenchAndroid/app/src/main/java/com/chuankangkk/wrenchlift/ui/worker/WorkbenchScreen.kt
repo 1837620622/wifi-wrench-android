@@ -255,7 +255,12 @@ private fun WorkbenchTopBar(state: MeasurementState, actions: WorkerActions, onB
                 actions.setSlabNo(slab); actions.setPointNo(point); editingPlace = false
             }
             CellDivider()
-            StatusCell("SN", state.deviceSn.takeIf { it.isNotBlank() && it != "未知设备" } ?: "--", Modifier.weight(1.15f), tight = tight, small = tight, dense = short)
+            // 编号与记住的不一致时 SN 标红：数据可能不是这台扳手回的，工人在主台就要看见。
+            StatusCell(
+                "SN", state.deviceSn.takeIf { it.isNotBlank() && it != "未知设备" } ?: "--", Modifier.weight(1.15f),
+                valueColor = if (state.deviceSnMismatch) p.danger else p.textPrimary,
+                tight = tight, small = tight, dense = short,
+            )
             CellDivider()
             StatusCell(
                 "电量", battery?.let { "$it%" } ?: "--", Modifier.weight(0.8f), tight = tight, dense = short,

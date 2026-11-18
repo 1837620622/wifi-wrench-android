@@ -129,6 +129,10 @@ class MeasurementViewModel @JvmOverloads constructor(
     @Volatile private var wrenchAddress: Int = WrenchPacket.DEFAULT_ADDRESS
     /** 当前入站帧是否已在 [logFrame] 里记入诊断；没记的在处理完后补记，保证每一帧都有。 */
     private var inboundJournaled = false
+    /** 本次连接是否已核对过设备编号（收到 0x26 并与记住的编号比对过）。 */
+    private var snConfirmedThisLink = false
+    /** 本次连接是否已为「未核对编号」记过问题点，避免每个测量帧都记一条。 */
+    private var snUnverifiedReported = false
     private val diagnostics: DiagnosticJournal get() = DiagnosticLog.journal
     private val sessionMutex = Mutex()
     private val measurementMutex = Mutex()
@@ -504,6 +508,9 @@ class MeasurementViewModel @JvmOverloads constructor(
     ) {
         connection = newConnection
         connectionMode = "TCP"
+        // 新的一条连接：设备编号要重新核对（冒充者只要不回 0x26，就绕过了比对）。
+        snConfirmedThisLink = false
+        snUnverifiedReported = false
         stateJob?.cancel()
         stateJob = viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
             newConnection.connectionState.collect { connectionState ->
@@ -1333,6 +1340,7 @@ class MeasurementViewModel @JvmOverloads constructor(
                 lastProtocolSummary = "收到设备数据",
             )
         }
+        if (packet.functionCode in MEASUREMENT_FUNCTION_CODES) noteDeviceUnverified(packet)
         when (packet.functionCode) {
             WrenchPacket.FUNC_ACK -> {
                 val ack = AckDecoder.decode(packet)
@@ -1395,6 +1403,8 @@ class MeasurementViewModel @JvmOverloads constructor(
                     }
                     else -> Unit
                 }
+                // 这次比对无论一致与否都算核对过：之后这条连接上的测量帧不再记「未核对」。
+                snConfirmedThisLink = verdict !is DeviceIdentity.Verdict.Unknown
                 val known = _state.value.deviceSn.takeIf { it.isNotBlank() && it != "未知设备" && it != "--" }
                 if (known != null && known != sn.sn && sessionId != null) {
                     // 换了一台扳手：上一台的记录收尾，新记录只含这台扳手的数据。
@@ -1430,6 +1440,10 @@ class MeasurementViewModel @JvmOverloads constructor(
                 logFrame("收", packet, "设备 SN ${sn.sn}")
                 appendLog("收到设备编号：${sn.sn}")
                 sessionId?.let { repository.updateDeviceSn(it, sn.sn) }
+                // 工人主台要看得见：只写在诊断页等于没有提示。放在最后，避免被上面的换机新记录清掉。
+                if (verdict is DeviceIdentity.Verdict.Differs) {
+                    controlFeedback("扳手编号与记住的不一致，请核对")
+                }
             }
             WrenchPacket.FUNC_BATTERY -> {
                 BatteryDecoder.decodePercent(packet)?.let { percent ->
@@ -1799,6 +1813,25 @@ class MeasurementViewModel @JvmOverloads constructor(
         diagnostics.info("维护人员已确认这台扳手的编号：$sn（之后的回话编号都与它比对）")
     }
 
+    /**
+     * 收到测量帧时核对「这条连接到底核对过设备编号没有」。
+     *
+     * 只比对 0x26 是不够的：冒充者干脆不回 0x26，测量帧照样进来、照样入库导出。所以本机记住过编号、
+     * 而这条连接一直没有比对过时，记一条问题点进诊断报告——只记不拦，协议没有认证，拦了会误伤真扳手。
+     */
+    private fun noteDeviceUnverified(packet: WrenchPacket) {
+        if (snConfirmedThisLink || snUnverifiedReported) return
+        val pinned = _state.value.deviceSnPinned
+        if (pinned.isBlank()) return
+        snUnverifiedReported = true
+        diagnostics.problem(
+            DiagnosticJournal.Problem.DEVICE_SN_UNVERIFIED,
+            "收到测量帧，但本次连接没有核对设备编号（本机记住的是 $pinned）",
+            packet.rawHex(), packet.functionCode,
+        )
+        appendLog("本次连接未核对设备编号（记住的是 $pinned），测量帧仍按原样接收")
+    }
+
     private fun appendLog(message: String) {
         diagnostics.info(message)
         _state.update {
@@ -1825,6 +1858,13 @@ class MeasurementViewModel @JvmOverloads constructor(
     }
 
     companion object {
+        /** 带测量数据的功能码：收到这些帧时核对本次连接是否已核对设备编号。 */
+        private val MEASUREMENT_FUNCTION_CODES = setOf(
+            WrenchPacket.FUNC_TORQUE_ANGLE,
+            WrenchPacket.FUNC_RESULT,
+            WrenchPacket.FUNC_PULSE_RESULT,
+        )
+
         const val PROBE_CONNECT_TIMEOUT_MILLIS = 2_000
         const val CANDIDATE_CHECK_TIMEOUT_MILLIS = 700
         const val RETRY_DELAY_MILLIS = 3_000L
