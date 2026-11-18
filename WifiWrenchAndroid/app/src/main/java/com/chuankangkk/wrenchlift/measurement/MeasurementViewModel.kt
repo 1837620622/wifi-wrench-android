@@ -130,9 +130,9 @@ class MeasurementViewModel @JvmOverloads constructor(
     /** 当前入站帧是否已在 [logFrame] 里记入诊断；没记的在处理完后补记，保证每一帧都有。 */
     private var inboundJournaled = false
     /** 本次连接是否已核对过设备编号（收到 0x26 并与记住的编号比对过）。 */
-    private var snConfirmedThisLink = false
+    @Volatile private var snConfirmedThisLink = false
     /** 本次连接是否已为「未核对编号」记过问题点，避免每个测量帧都记一条。 */
-    private var snUnverifiedReported = false
+    @Volatile private var snUnverifiedReported = false
     private val diagnostics: DiagnosticJournal get() = DiagnosticLog.journal
     private val sessionMutex = Mutex()
     private val measurementMutex = Mutex()
@@ -508,9 +508,6 @@ class MeasurementViewModel @JvmOverloads constructor(
     ) {
         connection = newConnection
         connectionMode = "TCP"
-        // 新的一条连接：设备编号要重新核对（冒充者只要不回 0x26，就绕过了比对）。
-        snConfirmedThisLink = false
-        snUnverifiedReported = false
         stateJob?.cancel()
         stateJob = viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
             newConnection.connectionState.collect { connectionState ->
@@ -1279,6 +1276,13 @@ class MeasurementViewModel @JvmOverloads constructor(
     /** 让 VM 处理该连接的所有入站帧（探测候选时也接，SN/电量等不丢）。先订阅，再建链。 */
     private fun attachPackets(target: WrenchConnection) {
         packetJob?.cancel()
+        // 换了一条连接：设备编号要在这条连接上重新核对（冒充者只要不回 0x26，就绕过了比对）。
+        // 只在这里重置：握手的 0x26 往往早于 adoptConnection 就到，若在接管时重置，会把刚核对的结果抹掉，
+        // 真扳手也会被记成「未核对设备编号」。
+        if (target !== connection) {
+            snConfirmedThisLink = false
+            snUnverifiedReported = false
+        }
         connection = target
         packetJob = viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
             target.incomingPackets.collect { packet ->
