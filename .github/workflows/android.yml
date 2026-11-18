@@ -51,6 +51,29 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest assembleRelease --stacktrace --console=plain -Pwifi.wrench.versionCode=$((1000 + GITHUB_RUN_NUMBER))
+      # 单测失败时把「哪个用例、为什么」写成注解：检查结果里直接看得到，
+      # 不必去翻几百行日志（日志对没有仓库权限的人不可读）。
+      - name: Annotate failing unit tests
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import glob, xml.etree.ElementTree as ET
+          shown = 0
+          for path in sorted(glob.glob('.build/app/test-results/**/*.xml', recursive=True)):
+              try:
+                  root = ET.parse(path).getroot()
+              except ET.ParseError:
+                  continue
+              for case in root.iter('testcase'):
+                  for tag in ('failure', 'error'):
+                      for problem in case.findall(tag):
+                          name = f"{case.get('classname')}.{case.get('name')}"
+                          lines = (problem.get('message') or problem.text or '').strip().splitlines()
+                          detail = (lines[0] if lines else '失败')[:600]
+                          print(f"::error title=单测失败 {name}::{detail}")
+                          shown += 1
+          print(f"失败用例 {shown} 个" if shown else "没有失败的单测用例")
+          PY
       - name: Verify APK signature and version
         run: |
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs .build/app/outputs/apk/debug/app-debug.apk
